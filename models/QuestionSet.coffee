@@ -68,15 +68,7 @@ QuestionSet.propertyList = =>
   _(QuestionSet.properties()).keys()
 
 QuestionSet.getQuestionProperties = =>
-
-  properties = QuestionSet.questionProperties
-  # Add in plugin properties
-  # Note that this changes the object, it doesn't create a copy
-  if Tamarind.databasePlugins?
-    for plugin in Tamarind.databasePlugins
-      _(properties.type.options).extend plugin?.jackfruit?.types
-  properties
-
+  QuestionSet.questionProperties
 
 QuestionSet.questionProperties  =
   {

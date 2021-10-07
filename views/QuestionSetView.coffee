@@ -17,9 +17,9 @@ global.Coffeescript = require 'coffeescript'
 JsonDiffPatch = require 'jsondiffpatch'
 underscored = require("underscore.string/underscored")
 
-hljs = require 'highlight.js/lib/highlight';
-coffeescriptHighlight = require 'highlight.js/lib/languages/coffeescript';
-hljs.registerLanguage('coffeescript', coffeescriptHighlight);
+hljs = require 'highlight.js/lib/core';
+hljs.registerLanguage('coffeescript', require ('highlight.js/lib/languages/coffeescript'))
+hljs.registerLanguage('json', require ('highlight.js/lib/languages/json'))
 
 global.QuestionSet = require '../models/QuestionSet'
 
@@ -333,7 +333,7 @@ class QuestionSetView extends Backbone.View
       useBR: false
 
     @$('pre code').each (i, snippet) =>
-      hljs.highlightBlock(snippet);
+      hljs.highlightElement(snippet);
 
     @sortable = Sortable.create document.getElementById('questions'),
       handle: ".handle"

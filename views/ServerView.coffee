@@ -19,10 +19,10 @@ class ServerView extends Backbone.View
       @$el.html "
         <style>
           li {
-            padding-top: 2em;
+            padding-top: 1em;
           }
           li a{
-            font-size: 2em;
+            font-size: 1em;
           }
         </style>
         <h1>Select a #{if @isDynamoDB then "Gateway" else "database"}:</h1>
@@ -32,17 +32,28 @@ class ServerView extends Backbone.View
               "<li style='height:50px;'><a href='#gateway/#{Tamarind.serverName}/#{gateway}'>#{gateway}</a></li>"
             ).join("")
           else
-            @taskDatabase = new PouchDB("#{@getServerUrlWithCredentials()}/server_tasks")
             databaseList = (for database in databaseList
               continue if database.startsWith("_")
               continue if database.match(/backup/)
               continue if database.startsWith("plugin")
-              "<li style='height:50px;'><a href='#database/#{Tamarind.serverName}/#{database}'>#{database}</a></li>"
+              "<li><a href='#database/#{Tamarind.serverName}/#{database}'>#{database}</a></li>"
             ).join("")
 
             databaseList
         }
+        <h1>or select a configured result:</h1>
       "
+
+      Tamarind.configurationDatabase = new PouchDB("#{@getServerUrlWithCredentials()}/tamarind")
+      @$el.append Tamarind.configurationDatabase.allDocs
+        startkey: "configuration"
+        endkey: "configuration_\uf000"
+      .then (result) =>
+        Promise.resolve(for row in result.rows
+          configurationName = row.id.replace(/"configuration_"/,"")
+          "<a href='results/#{Tamarind.serverName}/_configured/#{configurationName}'>#{configurationName}</a>"
+        ).join("")
+
 
   renderLoginForm: =>
     @$el.html "
@@ -94,7 +105,6 @@ class ServerView extends Backbone.View
 
   fetchDatabaseList: =>
     new Promise (resolve,reject) =>
-      console.log Tamarind.serverName
       if Tamarind.knownDatabaseServers[Tamarind.serverName].IdentityPoolId? # DynamoDB
         @isDynamoDB = true
 

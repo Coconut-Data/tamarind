@@ -1,10 +1,6 @@
 Backbone = require 'backbone'
 JsonDiffPatch = require 'jsondiffpatch'
 
-hljs = require 'highlight.js/lib/highlight';
-coffeescriptHighlight = require 'highlight.js/lib/languages/coffeescript';
-hljs.registerLanguage('coffeescript', coffeescriptHighlight);
-
 class DatabaseView extends Backbone.View
   render: =>
     @$el.html "<h1>Loading question sets...</h1>"
@@ -32,7 +28,7 @@ class DatabaseView extends Backbone.View
             font-size: 2em;
           }
         </style>
-        <h1>#{@databaseName}</h1>
+        <h1><a href='#server/#{@serverName}'>#{@databaseName}</a></h1>
         <h2>Select a question set</h2>
         <div id='questions'/>
         </div>
@@ -47,14 +43,6 @@ class DatabaseView extends Backbone.View
         </li>
         "
       ).join("")
-
-      hljs.configure
-        languages: ["coffeescript", "json"]
-        useBR: false
-
-      @$('pre code').each (i, snippet) =>
-        hljs.highlightBlock(snippet);
-
 
   events: =>
 

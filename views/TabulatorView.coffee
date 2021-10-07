@@ -12,8 +12,10 @@ Chart = require 'chart.js'
 ChartDataLabels = require 'chartjs-plugin-datalabels'
 
 PivotTable = require 'pivottable'
-slugify = require("underscore.string/slugify")
+global.slugify = require("underscore.string/slugify")
 titleize = require("underscore.string/titleize")
+global.camelize = require("underscore.string/camelize")
+global.capitalize = require("underscore.string/capitalize")
 
 class TabulatorView extends Backbone.View
 
@@ -22,6 +24,11 @@ class TabulatorView extends Backbone.View
     "click #downloadItemCount": "itemCountCSV"
     "change select#columnToCount": "updateColumnCount"
     "click #pivotButton": "loadPivotTable"
+    "change #includeEmpties": "updateIncludeEmpties"
+
+  updateIncludeEmpties: =>
+    @includeEmptiesInCount = @$("#includeEmpties").is(":checked")
+    @updateColumnCount()
 
   csv: => @tabulator.download "csv", "#{@questionSet.name()}-#{moment().format("YYYY-MM-DD_HHmm")}.csv"
 
@@ -29,6 +36,15 @@ class TabulatorView extends Backbone.View
 
   render: =>
     @$el.html "
+      <style>
+        #content .tabulator-row.tabulator-row-even {
+          background-color: #7f171f1a;
+        }
+
+        #content .tabulator-col {
+          background-color: #7f171f29
+        }
+      </style>
       <button id='download'>CSV ↓</button> <small>Add more fields by clicking the box below</small>
       <div id='tabulatorSelector'>
         <select id='availableTitles' multiple></select>
@@ -47,7 +63,10 @@ class TabulatorView extends Backbone.View
         </select>
         <div id='itemCount'>
           <div style='width: 200px; display:inline-block' id='itemCountTabulator'></div>
-          <button style='vertical-align:top' id='downloadItemCount'>CSV ↓</button>
+          <span id='columnCountOptions' style='display:none; vertical-align:top'>
+            <button id='downloadItemCount'>CSV ↓</button>
+            <input type='checkbox' id='includeEmpties'>Include undefined, null and empty</input>
+          </span>
           <div style='width: 600px; display:inline-block; vertical-align:top' id='itemCountChart'>
             <canvas id='itemCountChartCanvas'></canvas>
           </div>
@@ -60,7 +79,7 @@ class TabulatorView extends Backbone.View
       </div>
     "
 
-    @getAvailableColumns()
+    @availableTitles or= @getAvailableColumns()
     availableTitles = _(@availableColumns).pluck("title")
 
     @preselectedTitles or= availableTitles[0..3]
@@ -73,6 +92,7 @@ class TabulatorView extends Backbone.View
       choices: choicesData
       shouldSort: false
       removeItemButton: true
+      searchResultLimit: 10
 
     @$("#availableTitles")[0].addEventListener 'change', (event) =>
       @renderTabulator()
@@ -80,46 +100,65 @@ class TabulatorView extends Backbone.View
     @renderTabulator()
 
 
-  getAvailableColumns: =>
-    orderedColumnTitlesAndFields = @questionSet.data.questions.map (question) => 
-      title: question.label
-      field: slugify(question.label) # Should only do this when slugification happens. It's not happening on Gooseberry data.
+  getAvailableColumns: () =>
+    questionLabels = _(@questionSet.data.questions).pluck "label"
+
+    @fieldsFromData or= {}
+
+    if _(@fieldsFromData).isEmpty()
+      for item in _(@data).sample(10000) # In case we have results from older question sets with different questions we will find it here. Use sample to put an upper limit on how many to check. (If the number of results is less than the sample target it just uses the number of results.
+        for key in Object.keys(item)
+          @fieldsFromData[key] = true
+      @fieldsFromData = Object.keys(@fieldsFromData)
+
+    mappingsForLabelsToDataFields = {}
+    unmappedLabels = []
+    mappedFields = []
+    for label in questionLabels
+      if @fieldsFromData.includes label
+        mappingsForLabelsToDataFields[label] = label
+        mappedFields.push label
+      else if @fieldsFromData.includes (mappedLabel = slugify(label))
+        mappingsForLabelsToDataFields[label] = mappedLabel
+        mappedFields.push mappedLabel
+      else if @fieldsFromData.includes mappedLabel = capitalize(camelize(slugify(label)))
+        mappingsForLabelsToDataFields[label] = mappedLabel
+        mappedFields.push mappedLabel
+      else if label is "Malaria Case ID"
+        mappingsForLabelsToDataFields[label] = "MalariaCaseID"
+        mappedFields.push "MalariaCaseID"
+      else
+        unmappedLabels.push label
+
+    unmappedFields = _(@fieldsFromData).difference mappedFields
+
+    for label in unmappedLabels
+      mappingsForLabelsToDataFields[label] = label
+
+    for field in unmappedFields
+      continue if [
+        "_id"
+        "_rev"
+        "collection"
+      ].includes field
+      mappingsForLabelsToDataFields[field] = field
+
+    orderedColumnTitlesAndFields = for label, field of mappingsForLabelsToDataFields
+      title: label
+      field: field
       headerFilter: "input"
-
-    columnNamesFromData = {}
-    for item in _(@data).sample(10000) # In case we have results from older question sets with different questions we will find it here. Use sample to put an upper limit on how many to check. (If the number of results is less than the sample target it just uses the number of results.
-      for key in Object.keys(item)
-        columnNamesFromData[key] = true
-
-
-    fieldsFromCurrentQuestionSet = _(orderedColumnTitlesAndFields).pluck("field")
-    for columnName in Object.keys(columnNamesFromData)
-      unless fieldsFromCurrentQuestionSet.includes(columnName)
-        orderedColumnTitlesAndFields.push
-          title: titleize(columnName)
-          field: columnName
-          headerFilter: "input"
 
     if @excludeTitles
       orderedColumnTitlesAndFields = orderedColumnTitlesAndFields.filter (column) => 
         not @excludeFields.includes(column.title)
 
     # Having periods in the column name breaks things, so take them out
-    columnsWithPeriodRemoved = []
+    @fieldsWithPeriodRemoved = []
     @availableColumns = for column in orderedColumnTitlesAndFields
       if column.field.match(/\./)
-        columnsWithPeriodRemoved.push column.field
+        @fieldsWithPeriodRemoved.push column.field
         column.field = column.field.replace(/\./,"")
       column
-
-    # FIX THE DATA TOO TODO Notsure if this works
-    if columnsWithPeriodRemoved.length > 0
-      for item in @data
-        for column in columnsWithPeriodRemoved
-          item[column.replace(/\./,"")] = item[column]
-
-
-
 
 
   updateColumnCountOptions: =>
@@ -127,9 +166,11 @@ class TabulatorView extends Backbone.View
         "<option>#{column}</option>"
       ).join("")
 
-  updateColumnCount: () =>
+  updateColumnCount: =>
 
     return unless @$("#columnToCount option:selected").text()
+
+    @$("#columnCountOptions").show()
 
     columnFieldName = @availableColumns.find( (column) =>
       column.title is @$("#columnToCount option:selected").text()
@@ -146,8 +187,13 @@ class TabulatorView extends Backbone.View
     @$("#itemCount").show()
 
     for rowData in @tabulator.getData("active")
+      unless @includeEmptiesInCount
+        if [undefined, "", null].includes rowData[columnFieldName]
+          continue
+
       counts[rowData[columnFieldName]] or= 0
       counts[rowData[columnFieldName]] += 1
+      console.log rowData[columnFieldName]
 
     countData = for fieldName, amount of counts
       {
@@ -215,6 +261,13 @@ class TabulatorView extends Backbone.View
       @tabulator.setColumns(selectedColumns)
       @tabulator.setData @data
     else
+
+      if @fieldsWithPeriodRemoved.length > 0
+        @data = for item in @data
+          for column in @fieldsWithPeriodRemoved
+            item[column.replace(/\./,"")] = item[column]
+          item
+
       @tabulator = new Tabulator "#tabulatorForTabulatorView",
         height: 500
         columns: selectedColumns
