@@ -32,14 +32,13 @@ class ServerView extends Backbone.View
               "<li style='height:50px;'><a href='#gateway/#{Tamarind.serverName}/#{gateway}'>#{gateway}</a></li>"
             ).join("")
           else
-            databaseList = (for database in databaseList
+            (for database in databaseList
+              console.log database
               continue if database.startsWith("_")
               continue if database.match(/backup/)
               continue if database.startsWith("plugin")
               "<li><a href='#database/#{Tamarind.serverName}/#{database}'>#{database}</a></li>"
             ).join("")
-
-            databaseList
         }
         <h1>or select a configured result:</h1>
       "

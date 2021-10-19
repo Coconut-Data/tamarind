@@ -25,6 +25,7 @@ class TabulatorView extends Backbone.View
     "change select#columnToCount": "updateColumnCount"
     "click #pivotButton": "loadPivotTable"
     "change #includeEmpties": "updateIncludeEmpties"
+    "click .toggleNext": "toggleNext"
 
   updateIncludeEmpties: =>
     @includeEmptiesInCount = @$("#includeEmpties").is(":checked")
@@ -33,6 +34,22 @@ class TabulatorView extends Backbone.View
   csv: => @tabulator.download "csv", "#{@questionSet.name()}-#{moment().format("YYYY-MM-DD_HHmm")}.csv"
 
   itemCountCSV: => @itemCountTabulator.download "csv", "#{@questionSet.name()}ItemCount.csv"
+
+  toggleNext: (event) =>
+    toggler = $(event.target).closest(".toggleNext")
+    toggler.children().each (index, span) => 
+      $(span).toggle()
+
+    #TODO
+    toggler.parent().next("div").toggle() # Get the header then the sibling div
+
+  toggle: =>
+    "
+    <span style='cursor:pointer' class='toggleNext'>
+      <span style='color:#00bcd4'>►</span>
+      <span style='display:none; color:#00bcd4;'>▼</span>
+    </span>
+    "
 
   render: =>
     @$el.html "
@@ -57,36 +74,56 @@ class TabulatorView extends Backbone.View
         <span id='numberRows'></span>
       </div>
       <br/>
-      <h4>Additional Analysis</h4>
+      <h3>Additional Analysis <span></span>#{@toggle()}</h3>
       <div>
-        To count and graph unique values in a particular column, select the column here: <select id='columnToCount'>
-        </select>
-        <div id='itemCount'>
-          <div style='width: 200px; display:inline-block' id='itemCountTabulator'></div>
-          <span id='columnCountOptions' style='display:none; vertical-align:top'>
-            <button id='downloadItemCount'>CSV ↓</button>
-            <input type='checkbox' id='includeEmpties'>Include undefined, null and empty</input>
-          </span>
-          <div style='width: 600px; display:inline-block; vertical-align:top' id='itemCountChart'>
-            <canvas id='itemCountChartCanvas'></canvas>
+        <h4>Charts<span></span>#{@toggle()}</h4>
+        <div>
+          <li>TODO: Bar and line option
+          <li>TODO: Time series
+          To count and graph unique values in a particular column, select the column here: <select id='columnToCount'>
+          </select>
+          <div id='itemCount'>
+            <div style='width: 200px; display:inline-block' id='itemCountTabulator'></div>
+            <span id='columnCountOptions' style='display:none; vertical-align:top'>
+              <button id='downloadItemCount'>CSV ↓</button>
+              <input type='checkbox' id='includeEmpties'>Include undefined, null and empty</input>
+            </span>
+            <div style='width: 600px; display:inline-block; vertical-align:top' id='itemCountChart'>
+              <canvas id='itemCountChartCanvas'></canvas>
+            </div>
           </div>
         </div>
-      </div>
-      <hr/>
-      <div id='pivotTableDiv'>
-        For more complicated groupings and comparisons you can create a <button id='pivotButton'>Pivot Table</button>. The pivot table can also output CSV data that can be copy and pasted into a spreadsheet.
-        <div id='pivotTable'></div>
+        <hr/>
+
+        <h4>Pivot Tables<span></span>#{@toggle()}</h4>
+        <div id='pivotTableDiv'>
+          For more complicated groupings and comparisons you can create a <button id='pivotButton'>Pivot Table</button>. The pivot table can also output CSV data that can be copy and pasted into a spreadsheet.
+          <div id='pivotTable'></div>
+        </div>
+        <hr/>
+
+        <h4>Maps<span></span>#{@toggle()}</h4>
+        <div id='mappingDiv'>
+          If the data includes a longitude and latitude field it will be mapped here.
+          <li>TODO: Animated Time series
+          <li>TODO: Group by count and adjust dot size/heat map
+          <div id='map'></div>
+        </div>
       </div>
     "
 
     @availableTitles or= @getAvailableColumns()
     availableTitles = _(@availableColumns).pluck("title")
 
-    @preselectedTitles or= availableTitles[0..3]
+    @initialTitles = if @initialFields? and @initialFields.length > 0
+      for field in @initialFields
+        _(@availableColumns).findWhere(field: field)?.title
+    else
+      availableTitles[0..3]
 
-    choicesData = for title in _(@preselectedTitles.concat(_(availableTitles).sort())).uniq() # This preserves order of preselectedTitles and alphabetizes the rest
+    choicesData = for title in _(@initialTitles.concat(_(availableTitles).sort())).uniq() # This preserves order of initialTitles and alphabetizes the rest
       value: title
-      selected: if _(@preselectedTitles).contains title then true else false
+      selected: if _(@initialTitles).contains title then true else false
 
     @selector = new Choices "#availableTitles",
       choices: choicesData
@@ -148,7 +185,17 @@ class TabulatorView extends Backbone.View
       field: field
       headerFilter: "input"
 
-    if @excludeTitles
+    
+    fields = _(orderedColumnTitlesAndFields).pluck("field") #Used to stop duplicate calculated fields configured in Initial Fields
+    # Include the calculated fields at the front
+    for calculatedField in @availableCalculatedFields
+      unless _(fields).includes calculatedField
+        orderedColumnTitlesAndFields.unshift # to the front
+          title: calculatedField
+          field: calculatedField
+          headerFilter: "input"
+
+    if @excludeTitles? and @excludeTitles.length > 0
       orderedColumnTitlesAndFields = orderedColumnTitlesAndFields.filter (column) => 
         not @excludeFields.includes(column.title)
 
@@ -282,6 +329,8 @@ class TabulatorView extends Backbone.View
           _.delay =>
             @updateColumnCount()
           , 500
+        rowClick: (event, row) =>
+          @rowClick?(row) # If a rowClick function exists call it - lets others views hook into this
 
     @updateColumnCountOptions()
 
@@ -300,7 +349,7 @@ class TabulatorView extends Backbone.View
     #@$("#pivotTable").pivot data,
     #  rows: ["Classification"]
     #  cols: ["Household District"]
-    @pivotFields or= @preselectedTitles[0..1]
+    @pivotFields or= @initialTitles[0..1]
 
     @$("#pivotTable").pivotUI data,
       rows: [@pivotFields[0]]

@@ -143,7 +143,7 @@ Tamarind.getLocalMirrorForCouchDB = (serverUrlWithCredentials, databaseName) =>
           descending: true
           startkey: startkey
           endkey: "result"
-          limit: 100
+          limit: 1000
           skip: skip
           include_docs: true
 
@@ -238,6 +238,35 @@ Tamarind.updateAvailableFields = (remoteDatabase, localDatabaseMirror) =>
   remoteDatabase.query "fields",
     reduce: true
     group: true
+  .catch (error) =>
+    console.error error
+    alert "Need to add available fields index"
+    if error.reason is "missing"
+      password = prompt "Enter an admin password to setup a local mirror"
+      adminRemoteDatabase = new PouchDB(remoteDatabase.name.replace(/\/.*@/, "//admin:#{password}@"))
+      await adminRemoteDatabase.put
+        _id: "_design/fields",
+        language: "coffeescript",
+        views:
+          fields:
+            map: """(doc) ->
+  if doc.collection is 'result' and doc.question
+    for key in Object.keys(doc)
+      if key? and key isnt ''
+        emit [doc.question, key]
+            """
+            reduce: "_count"
+
+      _.delay =>
+        remoteDatabase.query "fields",
+          reduce: true
+      , 500
+
+      alert "Fields index added - may take a few minutes before it is ready to be used."
+
+      _.delay =>
+        return Tamarind.updateAvailableFields(remoteDatabase, localDatabaseMirror)
+      , 1000
   .then (result) =>
     fieldsAndFrequencyByQuestion = {}
     for row in result.rows

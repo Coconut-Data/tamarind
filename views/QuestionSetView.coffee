@@ -159,19 +159,6 @@ class QuestionSetView extends Backbone.View
         -->
 
         <h3><a id='resultsButton' href='#results/#{@serverName}/#{@databaseOrGatewayName}/#{@questionSet.name()}'>Results</a></h3>
-        #{
-          _.delay => # Delay it so the rest of the page loads quickly
-            questionSetResultName = underscored(@questionSet.name().toLowerCase())
-            startkey = "result-#{questionSetResultName}"
-            endkey = "result-#{questionSetResultName}-\ufff0"
-            Tamarind.database.allDocs
-              startkey: startkey
-              endkey: endkey
-            .then (result) =>
-              @$("#resultsButton").html "Results (#{result.rows.length})"
-          , 1000
-          ""
-        }
 
         <div style='display:none'>
           <div class='description'>These options configure the entire question set as opposed to individual questions. For example, this is where you can run code when the page loads or when the question set is marked complete.</div>
