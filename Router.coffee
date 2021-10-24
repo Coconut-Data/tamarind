@@ -26,7 +26,7 @@ class Router extends Backbone.Router
     "server/:serverName": "showServer"
     "database/:serverName/:databaseName": "showDatabase"
     "gateway/:serverName/:gatewayName": "showGateway"
-    "results/:serverName/_configured/:configurationName": "configuredResults"
+    "results/:serverName/:databaseName/query/:queryDocName": "resultsFromQuery"
     "results/:serverName/:databaseName/:questionSetDocId": "results"
     "questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId": "questionSet"
     "questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId/:question": "questionSet"
@@ -70,15 +70,14 @@ class Router extends Backbone.Router
     @questionSetView.activeQuestionLabel = question
     @questionSetView.render()
 
-  configuredResults: (resultName) =>
+  resultsFromQuery: (serverName, databaseName, queryDocName) =>
     new PouchDB("")
     await Tamarind.setupDatabase(serverName, databaseName)
     @resultsView ?= new ResultsView()
     @resultsView.serverName = serverName
     @resultsView.databaseName = databaseName
     @resultsView.setElement $("#content")
-    @resultsView.questionSet = await QuestionSet.fetch(questionSetDocId)
-    @resultsView.activeQuestionLabel = question
+    @resultsView.queryDocName = queryDocName
     @resultsView.render()
 
 

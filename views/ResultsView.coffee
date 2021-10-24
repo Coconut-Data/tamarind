@@ -37,10 +37,42 @@ class ResultsView extends Backbone.View
     "change #query--map-function": "updateQueryResultFromSample"
     "click #loadNewSample": "getNewSample"
     "click .toggleNext": "toggleNext"
-    "click #refresh": "refresh"
+    "click #refresh": "queryAndLoadTable"
     "click #createQueryButton": "createQuery"
     "click #removeQueryButton": "removeQuery"
     "change .query-filter-date-range": "updateDateRange"
+    "click #createNewQueryFromCurrentConfiguration": "createNewQueryFromCurrentConfiguration"
+
+  createNewQueryFromCurrentConfiguration: =>
+    # Do a deep clone https://www.samanthaming.com/tidbits/70-3-ways-to-clone-objects/
+    newQueryDoc = JSON.parse(JSON.stringify(@queryDoc))
+
+
+    nameBase = if newQueryDoc.Name.match("-")
+      nameBase = newQueryDoc.Name.replace(/-.*/,"-")
+    else
+      nameBase = newQueryDoc.Name + "-"
+    queryName = prompt "Enter name for configuration:", nameBase
+    return if queryName is null
+    newQueryDoc.Name = queryName
+    newQueryDoc._id = "tamarind-query-#{queryName}"
+
+    # Fix CSON sections for saving
+    newQueryDoc["Query Field Options"] = CSON.stringify(newQueryDoc["Query Field Options"], null, "  ") if newQueryDoc["Query Field Options"]
+
+
+    # Open/Close Sections
+    # Graph/PivotTable/map Config
+
+    if await (Tamarind.localDatabaseMirror.get(newQueryDoc._id).catch => Promise.resolve null)
+      return unless confirm "#{queryName} already exists, do you want to replace it?"
+
+    await Tamarind.localDatabaseMirror.upsert newQueryDoc._id, =>
+      newQueryDoc
+
+    Tamarind.localDatabaseMirror.replicate.to Tamarind.database,
+      doc_ids: [newQueryDoc]
+    @render()
 
   updateDateRange: (event) =>
     dateRangeElement = $(event.target)
@@ -73,9 +105,6 @@ class ResultsView extends Backbone.View
       Tamarind.localDatabaseMirror.replicate.to Tamarind.database,
         doc_ids: [docId]
       @render()
-
-  refresh: =>
-    @render()
 
   toggleNext: (event) =>
     toggler = $(event.target).closest(".toggleNext")
@@ -125,7 +154,8 @@ class ResultsView extends Backbone.View
         """
         eval Coffeescript.compile(evalFunction, bare:true)
       else if @$("#query--fields").val()
-        @currentSample.pick @$("#query--fields").val().split(/, */)
+        Object.values(_(@currentSample).pick(@$("#query--fields").val().split(/, */))).join(",")
+      else "No fields or mapping function"
       }
       </span>
     "
@@ -210,18 +240,16 @@ class ResultsView extends Backbone.View
     .then => console.log "Index built!"
     .catch (error) => console.error error
 
-  getQueryDoc: (options = {}) =>
-    questionSetName = @questionSet.name()
-    query = "tamarind-query-#{options.query or "#{questionSetName}-default"}"
+  getQueryDoc: =>
+    queryDocId = "tamarind-query-#{@queryDocName or "#{@questionSet?.name()}-default" or throw "No query configuration"}"
 
     if Tamarind.localDatabaseMirror?
-      queryDoc = await Tamarind.localDatabaseMirror.get(query)
+      queryDoc = await Tamarind.localDatabaseMirror.get(queryDocId)
       .catch (error) => Promise.resolve null
       queryDoc["Query Field Options"] = CSON.parse(queryDoc["Query Field Options"])
       queryDoc
 
   getResults: (options = {}) =>
-    questionSetName = @questionSet.name()
 
     if Tamarind.localDatabaseMirror?
       @results = if @queryDoc
@@ -237,8 +265,6 @@ class ResultsView extends Backbone.View
         @$("#messages").append "<h2>Using query: #{@queryDoc.Name}</h2>"
 
         queryOptions =
-          startkey: [questionSetName, {}]
-          endkey: [questionSetName]
           descending: true
           include_docs: true
           limit: @queryDoc.limit or 10000
@@ -259,6 +285,11 @@ class ResultsView extends Backbone.View
             if field.endValue?
               field.endValue = moment().format("YYYY-MM-DD") if field.endValue is "now"
               queryOptions.startkey.push field.endValue
+
+          unless queryOptions.startkey?
+            queryOptions.startkey = [@questionSet?.name(), {}]
+          unless queryOptions.endkey?
+            queryOptions.endkey = [@questionSet?.name()]
 
         _(queryOptions).extend @queryDoc.queryOptions
 
@@ -283,8 +314,6 @@ class ResultsView extends Backbone.View
           Promise.resolve if @largeDatasetMode
             fieldsToInclude = @currentlySelectedFields.concat(options.extraFieldsNeededForCalculatedFields or [])
 
-            console.log result.rows
-
             _(result.rows).map (row) =>
               result = _(row.doc).pick @currentlySelectedFields
               result.id = row.id
@@ -299,8 +328,8 @@ class ResultsView extends Backbone.View
 
         Tamarind.localDatabaseMirror.query "default",
           include_docs: true
-          startkey: [questionSetName, {}]
-          endkey: [questionSetName, new Date().getFullYear()]
+          startkey: [@questionSet?.name(), {}]
+          endkey: [@questionSet?.name(), new Date().getFullYear()]
           descending: true
           limit: 10000
         #.catch (error) => alert error
@@ -348,17 +377,6 @@ class ResultsView extends Backbone.View
     @setCurrentlySelectedFields()
     enabledCalculatedFields = @tabulators["calculated-field"].getData().filter (calculatedField) => calculatedField.enabled
 
-    # Wrap in function for awaits and get indents right
-    for calculatedField in enabledCalculatedFields
-      if calculatedField.initialize
-
-        # https://stackoverflow.com/questions/1271516/executing-anonymous-functions-created-using-javascript-eval
-        initializeFunction = new AsyncFunction(Coffeescript.compile(calculatedField.initialize, bare:true))
-        await initializeFunction()
-
-      # Might be faster to use new Function if there is no need of async here
-      calculatedField.calculationFunction = new AsyncFunction('result', Coffeescript.compile(calculatedField.calculation, bare:true))
-
     if enabledCalculatedFields?.length > 0
       if @currentlySelectedFields?.length > 0
         enabledCalculatedFieldTitles = _(enabledCalculatedFields).pluck("title")
@@ -367,15 +385,29 @@ class ResultsView extends Backbone.View
     currentlySelectedCalculatedFields = enabledCalculatedFields.filter (field) =>
       currentlySelectedCalculatedFieldTitles?.includes field.title
 
-
     if currentlySelectedCalculatedFields.length > 0
       extraFieldsNeededForCalculatedFields = []
-      for field in currentlySelectedCalculatedFields
-        for match in (field.calculation + field.initialize).match(/(result\[.+?\])|result.[a-zA-Z-_]+/g)
-          field = match.replace(/result\./,"")
+      for calculatedField in currentlySelectedCalculatedFields
+        for match in (calculatedField.calculation + calculatedField.initialize).match(/(result\[.+?\])|result.[a-zA-Z-_]+/g)
+          fieldName = match.replace(/result\./,"")
           .replace(/result\[['"]/,"")
           .replace(/['"]\]/,"")
-          extraFieldsNeededForCalculatedFields.push field
+          extraFieldsNeededForCalculatedFields.push fieldName
+
+        if calculatedField.initialize
+          # https://stackoverflow.com/questions/1271516/executing-anonymous-functions-created-using-javascript-eval
+          try
+            initializeFunction = new AsyncFunction(Coffeescript.compile(calculatedField.initialize, bare:true))
+          catch error then alert "Error compiling #{calculatedField.title}: #{error}\n#{CSON.stringify calculatedField, null, "  "}"
+          await initializeFunction()
+
+        # Might be faster to use new Function if there is no need of async here
+        calculatedField.calculationFunction = new AsyncFunction('result', 
+          try
+            Coffeescript.compile(calculatedField.calculation, bare:true)
+          catch error then alert "Error compiling #{calculatedField.title}: #{error}\n#{CSON.stringify calculatedField, null, "  "}"
+        )
+
       extraFieldsNeededForCalculatedFields = _(extraFieldsNeededForCalculatedFields).unique()
 
       results = await @getResults(extraFieldsNeededForCalculatedFields: extraFieldsNeededForCalculatedFields)
@@ -399,27 +431,40 @@ class ResultsView extends Backbone.View
   render: =>
     @$el.html "
       <style>#{@css()}</style>
+      <div style='float:right; width:50%; background-color:#7f171f29;' id='messages'>
+        <div id='dataChangesMessages'></div>
+        #{
+          if @questionSet
+            changes = 0
+            Tamarind.localDatabaseMirror.changes
+              live: true
+              include_docs: false
+              since: "now"
+            .on "change", (change) =>
+              if change.doc?.question is @questionSet.name
+                changes += 1
+                @$("#dataChangesMessages").html "New data available (#{changes}) <button id='refresh'>Refresh</button>"
+            ""
+        }
+      </div>
       <h2>
-        Results for <a href='#questionSet/#{@serverName}/#{@databaseName}/#{@questionSet.name()}'>#{@questionSet.name()}</a> 
+        #{
+        if @questionSet
+          "
+          Results for <a href='#questionSet/#{@serverName}/#{@databaseName}/#{@questionSet.name()}'>#{@questionSet.name()}</a> 
+          "
+        else if @queryDocName
+          "
+          Results for <a href='#questionSet/#{@serverName}/#{@databaseName}'>#{@queryDocName}</a> 
+          "
+        }
       </h2>
-      <div id='messages'></div>
-      <div id='dataChangesMessages'></div>
-      #{
-        changes = 0
-        Tamarind.localDatabaseMirror.changes
-          live: true
-          include_docs: false
-          since: "now"
-        .on "change", (change) =>
-          if change.doc?.question is @questionSet.name
-            changes += 1
-            @$("#dataChangesMessages").html "New data available (#{changes}) <button id='refresh'>Refresh</button>"
-        ""
-      }
+      <button id='createNewQueryFromCurrentConfiguration'>Save current configuration as new Query</button>
       #{@renderQueriesDiv()}
       #{@renderCalculatedFieldsDiv()}
       <div id='queryFilters'></div>
       <div id='tabulatorView'></div>
+      </div>
     "
 
 
@@ -437,25 +482,27 @@ class ResultsView extends Backbone.View
     @tabulatorView.questionSet = @questionSet
     @tabulatorView.availableCalculatedFields = _(@tabulators["calculated-field"].getData()).pluck("title")
     @queryDoc = await @getQueryDoc()
+    if @queryDoc.questionSet # This is used for determinng availableFields
+      @questionSet = @queryDoc.questionSet
+      @tabulatorView.questionSet = @questionSet
     @addQueryFilters()
     @tabulatorView.initialFields = @queryDoc?["Initial Fields"]?.split(/, */)
-    @tabulatorView.fieldsFromData = await Tamarind.localDatabaseMirror.get("_local/availableFields")
-    .catch (error) => Promise.resolve(null)
-    .then (doc) => 
-      Promise.resolve(
-        _(doc.fieldsAndFrequencyByQuestion[@questionSet.name()])
-        .chain()
-        .sortBy("frequency")
-        .pluck "field"
-        .reverse()
-        .value()
-      )
-    @tabulatorView.rowClick = (row) =>
-      @getNewSample(row.getData().id)
 
-    # First render it empty so we can at least see the columns
-    @tabulatorView.data = []
-    await @tabulatorView.render()
+    if @questionSet?
+      @tabulatorView.fieldsFromData = await Tamarind.localDatabaseMirror.get("_local/availableFields")
+      .catch (error) => Promise.resolve(null)
+      .then (doc) => 
+        Promise.resolve(
+          _(doc.fieldsAndFrequencyByQuestion[@questionSet.name()])
+          .chain()
+          .sortBy("frequency")
+          .pluck "field"
+          .reverse()
+          .value()
+        )
+    @tabulatorView.rowClick = (row) =>
+      @getNewSample(row.getData().id or row.getData()._id)
+
 
     await @queryAndLoadTable()
 
@@ -479,57 +526,43 @@ class ResultsView extends Backbone.View
 
 
   queryAndLoadTable: =>
-    # If it's a small database we can wait for it and load everything in memory
-    # Otherwise load it empty to get column selector available
-    # Then only get columns that are displayed
-    #
-    if (await Tamarind.localDatabaseMirror.info()).doc_count > 10000
-      @largeDatasetMode = true
 
-      @getResultsWithCalculatedFields() # This runs asynchronously
-      .then (result) => 
-        console.log "Setting with new data and render"
-        @$("#messages").html "<h1>Query Complete.</h1>"
-        _.delay =>
-          @$("#messages").html ""
-        , 5000
-        @tabulatorView.data = result
-        @tabulatorView.renderTabulator()
-        @getNewSample()
+    @largeDatasetMode = (await Tamarind.localDatabaseMirror.info()).doc_count > 10000
 
+    @tabulatorView.data = await @getResultsWithCalculatedFields()
+    @$("#messages").html ""
+    if @tabulatorView.tabulator
+      @tabulatorView.renderTabulator()
     else
-      @largeDatasetMode = false
-      @tabulatorView.data = await @getResultsWithCalculatedFields()
-      @$("#messages").html ""
-      await @tabulatorView.renderTabulator()
-      @getNewSample()
+      await @tabulatorView.render()
+    @getNewSample()
 
   renderQueriesDiv: => 
-    questionSetName = @questionSet.name()
-
     @queryProperties = [
         name: "Name"
         description: "Name of the query"
-        example: "#{questionSetName}-default"
+        example: "#{@questionSet?.name() or @databaseName}-default"
       ,
         name: "Fields"
         description: "Fields in the order of the query. For example, first get all of the results for question X, then limit the results to everything created after a certain date."
         example: "question, createdAt"
       ,
         name: "Map Function"
-        description: "This is an advanced feature. If there is a Map Function then it will override the 'Fields' section."
+        description: "This is an advanced feature. If there is a Map Function then it will override the 'Fields' section. If you need to combine fields or do extra logic before indexing this is how you can do it."
         type: "coffeescript"
         example: """
           (doc) =>
-            emit [doc.name,doc.date]
+            # Use the name, if not try and combine First and Last to make it
+            name = doc.name or \#{doc.FirstName + " " + doc.LastName}
+            emit [name,doc.date]
      """
       ,
         name: "Query Field Options"
-        description: "Fields to display to user for filtering the query, like date or region. This happens at the query stage not within the table. The array order must match the Fields above."
+        description: "Fields to display to user for filtering the query, like date or region. This happens at the query stage not within the table. The array order must match the Fields above. The format here is CSON, it's like JSON but easier to read (no need for commas, double quotes, etc), and you do need to ident it properly."
         type: "coffeescript"
         example: CSON.stringify [
-          {field:'question', equals: "#{questionSetName}", userSelectable: false}
-          {field:'createdAt', startValue: "#{moment().format("YYYY-MM-DD")}", endValue: 'now', userSelectable: true}
+          {field:'question', equals: "#{@questionSet?.name() or "name"}", userSelectable: false}
+          {field:'createdAt', type: "Date Range", startValue: "#{moment().format("YYYY-MM-DD")}", endValue: 'now', userSelectable: true}
         ]
         , null, "  "
       ,
@@ -556,12 +589,12 @@ class ResultsView extends Backbone.View
     <h3>Queries <span></span>#{@toggle()}</h3>
     <div style='display:none' id='queries'>
       <span class='description'>
-        Queries are what is used to select the data you want to display.
+        Queries select the data you want to display. You can save queries so that they can be reused again in the future. The 'default' query for the current question set will be used if no other query is selected. All of the queries available in this database are listed below.
       </span>
       <div id='query-tabulator'></div>
       <div id='createQuery'>
         <div style='width:49%; display:inline-block; vertical-align:top'>
-          <h3>Create Query</h3>
+          <h3>Edit Query</h3>
           <div>
           #{
             (for property in @queryProperties
@@ -713,37 +746,39 @@ Tamarind.database.allDocs  # Get all of the user documents from the database
         include_docs: true
       .then (result) => Promise.resolve _(result.rows).pluck "doc"
 
+      columns = (
+        properties = {}
+
+        # Get all possible properties
+        for field in configurationDocs
+          for property in Object.keys(field)
+            properties[property] = true
+        columns = for property of properties
+         # Skip these
+          continue if [
+            "_rev"
+            "_id"
+          ].includes property
+
+          column = 
+            field: property
+            title: property
+            width: 200
+
+          if property is "Name"
+            column.width = 300
+
+          column
+      )
+
+      columns.unshift
+        formatter: (cell) =>
+          "<a href='#results/#{@serverName}/#{@databaseName}/query/#{cell.getData().Name}'>⇗</a>"
+
       @tabulators or= {}
       @tabulators[configurationType] = new Tabulator "##{configurationType}-tabulator",
+        columns: columns
         height: 200
-        columns: (
-          properties = {}
-
-          # Get all possible properties
-          for field in configurationDocs
-            for property in Object.keys(field)
-              properties[property] = true
-          columns = for property of properties
-           # Skip these
-            continue if [
-              "_rev"
-              "_id"
-            ].includes property
-
-            column = 
-              field: property
-              title: property
-              width: 200
-
-            if property is "enabled"
-              column.title = ""
-              column.editor = "tickCross"
-              column.width = 30
-              column.formatter = "tickCross"
-
-            column
-          _(columns).sortBy (column) -> column.field isnt "enabled" # Get enabled at the beginning
-        )
         initialSort:[
           {column:"enabled", dir:"desc"}
         ]
@@ -776,8 +811,7 @@ Tamarind.database.allDocs  # Get all of the user documents from the database
       @updateQueryResultFromSample()
 
   getNewSample: (id) =>
-    @currentSample = if id?
-      console.log id
+    @currentSample = if id? and _(id).isString()
       await Tamarind.localDatabaseMirror.get(id)
     else
       # Choose a random result for helping to build a calculated field

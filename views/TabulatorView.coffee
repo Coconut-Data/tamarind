@@ -25,29 +25,40 @@ class TabulatorView extends Backbone.View
     "change select#columnToCount": "updateColumnCount"
     "click #pivotButton": "loadPivotTable"
     "change #includeEmpties": "updateIncludeEmpties"
-    "click .toggleNext": "toggleNext"
+    "click .toggleNextSection": "toggleNext"
+
 
   updateIncludeEmpties: =>
     @includeEmptiesInCount = @$("#includeEmpties").is(":checked")
     @updateColumnCount()
 
-  csv: => @tabulator.download "csv", "#{@questionSet.name()}-#{moment().format("YYYY-MM-DD_HHmm")}.csv"
+  csv: => @tabulator.download "csv", "#{@questionSet?.name()}-#{moment().format("YYYY-MM-DD_HHmm")}.csv"
 
-  itemCountCSV: => @itemCountTabulator.download "csv", "#{@questionSet.name()}ItemCount.csv"
+  itemCountCSV: => @itemCountTabulator.download "csv", "#{@questionSet?.name()}ItemCount.csv"
 
   toggleNext: (event) =>
-    toggler = $(event.target).closest(".toggleNext")
-    toggler.children().each (index, span) => 
-      $(span).toggle()
+    toggler = $(event.target).closest(".toggleNextSection")
 
-    #TODO
+    # Change the icon
+    toggler.children().each (index, span) => $(span).toggle()
+
     toggler.parent().next("div").toggle() # Get the header then the sibling div
 
-  toggle: =>
+  toggle:  (options = {startClosed: true}) =>
     "
-    <span style='cursor:pointer' class='toggleNext'>
-      <span style='color:#00bcd4'>►</span>
-      <span style='display:none; color:#00bcd4;'>▼</span>
+    <span style='cursor:pointer' class='toggleNextSection'>
+      #{
+      if options.startClosed
+        "
+        <span style='color:#00bcd4'>►</span>
+        <span style='display:none; color:#00bcd4;'>▼</span>
+        "
+      else
+        "
+        <span style='display:none; color:#00bcd4'>►</span>
+        <span style='color:#00bcd4;'>▼</span>
+        "
+      }
     </span>
     "
 
@@ -62,25 +73,28 @@ class TabulatorView extends Backbone.View
           background-color: #7f171f29
         }
       </style>
-      <button id='download'>CSV ↓</button> <small>Add more fields by clicking the box below</small>
-      <div id='tabulatorSelector'>
-        <select id='availableTitles' multiple></select>
-      </div>
-      <div id='selector'>
-      </div>
-      <div id='tabulatorForTabulatorView'></div>
+      <h3>Table #{@toggle(startClosed:false)}</h3>
       <div>
-        Number of Rows: 
-        <span id='numberRows'></span>
+        <button id='download'>CSV ↓</button> <small>Add more fields by clicking the box below</small>
+        <div id='tabulatorSelector'>
+          <select id='availableTitles' multiple></select>
+        </div>
+        <div id='selector'>
+        </div>
+        <div id='tabulatorForTabulatorView'></div>
+        <div>
+          Number of Rows: 
+          <span id='numberRows'></span>
+        </div>
       </div>
       <br/>
-      <h3>Additional Analysis <span></span>#{@toggle()}</h3>
-      <div>
-        <h4>Charts<span></span>#{@toggle()}</h4>
-        <div>
+      <h3>Additional Analysis #{@toggle()}</h3>
+      <div style='display:none'>
+        <h4>Charts#{@toggle()}</h4>
+        <div style='display:none'>
+          To count and graph unique values in a particular column, select the column here: <select id='columnToCount'>
           <li>TODO: Bar and line option
           <li>TODO: Time series
-          To count and graph unique values in a particular column, select the column here: <select id='columnToCount'>
           </select>
           <div id='itemCount'>
             <div style='width: 200px; display:inline-block' id='itemCountTabulator'></div>
@@ -95,15 +109,15 @@ class TabulatorView extends Backbone.View
         </div>
         <hr/>
 
-        <h4>Pivot Tables<span></span>#{@toggle()}</h4>
-        <div id='pivotTableDiv'>
+        <h4>Pivot Tables#{@toggle()}</h4>
+        <div style='display:none' id='pivotTableDiv'>
           For more complicated groupings and comparisons you can create a <button id='pivotButton'>Pivot Table</button>. The pivot table can also output CSV data that can be copy and pasted into a spreadsheet.
           <div id='pivotTable'></div>
         </div>
         <hr/>
 
-        <h4>Maps<span></span>#{@toggle()}</h4>
-        <div id='mappingDiv'>
+        <h4>Maps#{@toggle()}</h4>
+        <div style='display:none' id='mappingDiv'>
           If the data includes a longitude and latitude field it will be mapped here.
           <li>TODO: Animated Time series
           <li>TODO: Group by count and adjust dot size/heat map
@@ -138,11 +152,12 @@ class TabulatorView extends Backbone.View
 
 
   getAvailableColumns: () =>
-    questionLabels = _(@questionSet.data.questions).pluck "label"
+    questionLabels = _(@questionSet?.data.questions).pluck "label"
 
     @fieldsFromData or= {}
 
     if _(@fieldsFromData).isEmpty()
+      console.log "Sampling data to determine available fields"
       for item in _(@data).sample(10000) # In case we have results from older question sets with different questions we will find it here. Use sample to put an upper limit on how many to check. (If the number of results is less than the sample target it just uses the number of results.
         for key in Object.keys(item)
           @fieldsFromData[key] = true
@@ -332,6 +347,13 @@ class TabulatorView extends Backbone.View
         rowClick: (event, row) =>
           @rowClick?(row) # If a rowClick function exists call it - lets others views hook into this
 
+    @$("#tabulatorForTabulatorView").css("border","5px solid #00bcd4")
+    _.delay =>
+      @$("#tabulatorForTabulatorView").css("border","2px solid #00bcd4")
+    , 500
+    _.delay =>
+      @$("#tabulatorForTabulatorView").css("border","")
+    , 1000
     @updateColumnCountOptions()
 
 
