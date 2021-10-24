@@ -118,7 +118,7 @@ class ResultsView extends Backbone.View
     return if calculation is ""
     @unsavedCalculation = true
     unless calculation.match(/return/)
-      if confirm "No return statement, shall I add it?"
+      if confirm "No return statement, do you want to add it?"
         calculation = @$("#calculation").val().split(/\n/)
         lastLine = calculation.pop()
         lastLine = "return " + lastLine
@@ -127,7 +127,15 @@ class ResultsView extends Backbone.View
         @$("#calculation").val calculation.join("\n")
         calculation = @$("#calculation").val()
 
-    calculationFunction = new Function('result', Coffeescript.compile(calculation, bare:true))
+    try
+      calculationFunction = new Function('result', Coffeescript.compile(calculation, bare:true))
+    catch error
+      alert "Error compiling calculation: #{error}. Create/Update button disabled until this is fixed.\n#"
+      @$("#createCalculatedFieldButton")[0].disabled = true
+      return
+
+    @$("#createCalculatedFieldButton")[0].disabled = false
+
     @$("#calculationFromSample").html "
       Calculation with current sample: <span style='font-weight:bold'>
       #{
@@ -246,9 +254,12 @@ class ResultsView extends Backbone.View
     if Tamarind.localDatabaseMirror?
       queryDoc = await Tamarind.localDatabaseMirror.get(queryDocId)
       .catch (error) => Promise.resolve null
-      queryDoc["Query Field Options"] = CSON.parse(queryDoc["Query Field Options"])
+      queryDoc["Query Field Options"] = CSON.parse(queryDoc["Query Field Options"]) if queryDoc["Query Field Options"]
       queryDoc
 
+  # TODO change this to take a queryDoc as an argument
+  # TODO allows multiple query docs
+  # TODO some kind of merging when multiple query docs
   getResults: (options = {}) =>
 
     if Tamarind.localDatabaseMirror?
@@ -482,6 +493,7 @@ class ResultsView extends Backbone.View
     @tabulatorView.questionSet = @questionSet
     @tabulatorView.availableCalculatedFields = _(@tabulators["calculated-field"].getData()).pluck("title")
     @queryDoc = await @getQueryDoc()
+    console.log @queryDoc
     if @queryDoc.questionSet # This is used for determinng availableFields
       @questionSet = @queryDoc.questionSet
       @tabulatorView.questionSet = @questionSet

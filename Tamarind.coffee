@@ -240,8 +240,8 @@ Tamarind.updateAvailableFields = (remoteDatabase, localDatabaseMirror) =>
     group: true
   .catch (error) =>
     console.error error
-    alert "Need to add available fields index"
     if error.reason is "missing"
+      alert "Need to add available fields index"
       password = prompt "Enter an admin password to setup a local mirror"
       adminRemoteDatabase = new PouchDB(remoteDatabase.name.replace(/\/.*@/, "//admin:#{password}@"))
       await adminRemoteDatabase.put
