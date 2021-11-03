@@ -33,7 +33,6 @@ class ServerView extends Backbone.View
             ).join("")
           else
             (for database in databaseList
-              console.log database
               continue if database.startsWith("_")
               continue if database.match(/backup/)
               continue if database.startsWith("plugin")

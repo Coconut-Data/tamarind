@@ -110,6 +110,21 @@ Tamarind.getLocalMirrorForCouchDB = (serverUrlWithCredentials, databaseName) =>
   else
     await Tamarind.updateAvailableFields(remoteDatabase, localDatabaseMirror)
 
+
+  # Get configuration stuff first
+  # calculated-fields
+  # search query params
+  # indexes
+  # Need to replicate these since they get created/edited on client then synced to other clients
+  console.log "Getting Tamarind specific configuration data for #{databaseName}"
+  remoteDatabase.allDocs
+    startkey: "tamarind-"
+    endkey: "tamarind-\uf000"
+    include_docs: false
+  .then (result) =>
+    console.log await remoteDatabase.replicate.to localDatabaseMirror,
+      doc_ids: _(result.rows).pluck "id"
+     
   last_seq = await localDatabaseMirror.get "_local/remote_last_seq"
   .then (doc) => Promise.resolve doc.last_seq
   .catch => Promise.resolve null
@@ -117,37 +132,44 @@ Tamarind.getLocalMirrorForCouchDB = (serverUrlWithCredentials, databaseName) =>
     Tamarind.watchRemoteChangesAndSaveLocally(remoteDatabase, localDatabaseMirror, last_seq)
     return Promise.resolve localDatabaseMirror
   else
-
-    # Get configuration stuff first
-    # calculated-fields
-    # search query params
-    # indexes
-    remoteDatabase.allDocs
-      startkey: "tamarind-"
-      endkey: "tamarind-\uf000"
-      include_docs: true
-    .then (result) =>
-      localDatabaseMirror.bulkDocs (_(result.rows).pluck "doc"),
-        new_edits: false
-
-
-    # Get all the docs in reverse order and put them in the mirror
-    # Use the last_seq to start handling changes after the initial grab of data
-    startkey = "result-\uf000"
-    skip = 0
-    last_seq = (await remoteDatabase.changes(limit:0, descending:true)).last_seq
+    console.log "Setting up #{databaseName} for the first time"
+    console.log "Getting all of the #{databaseName} documents 1000 at a time"
 
     await new Promise (resolve) =>
+      # Get all the docs in reverse order and put them in the mirror
+      # Use the last_seq to start handling changes after the initial grab of data
+      isZanzibarDatabase = remoteDatabase.name.match(/zanzibar\.cococloud\.co\/zanzibar/)
+      if isZanzibarDatabase
+        startkey = [{},""]
+        endkey = ["", ""]
+      else
+        startkey = "result-\uf000"
+        endkey = "result"
+
+      skip = 0
+      last_seq = (await remoteDatabase.changes(limit:0, descending:true)).last_seq
+
       loop
-        result = await remoteDatabase.allDocs
-          descending: true
-          startkey: startkey
-          endkey: "result"
-          limit: 1000
-          skip: skip
-          include_docs: true
+        console.log "#{startkey} -> #{endkey}"
+        result = if isZanzibarDatabase
+          await remoteDatabase.query "results",
+            descending: true
+            startkey: startkey
+            endkey: endkey
+            limit: 5000
+            skip: skip
+            include_docs: true
+        else
+          await remoteDatabase.allDocs
+            descending: true
+            startkey: startkey
+            endkey: endkey
+            limit: 1000
+            skip: skip
+            include_docs: true
 
         if result.rows.length is 0
+          console.log "Finished initial bulk load of document for #{databaseName}"
           Tamarind.watchRemoteChangesAndSaveLocally(remoteDatabase, localDatabaseMirror, last_seq)
           break
 
@@ -158,81 +180,13 @@ Tamarind.getLocalMirrorForCouchDB = (serverUrlWithCredentials, databaseName) =>
           if problemPuts.length isnt 0
             alert "Problem saving local data: #{JSON.stringify problemPuts}"
 
-        startkey = result.rows[result.rows.length - 1].id
+        startkey = result.rows[result.rows.length - 1].key
         skip = 1
         # Resolve after the first iteration so we can start working with data while the rest continues to download
         resolve()
 
     Promise.resolve(localDatabaseMirror)
     
-
-
-  ###
-  if await Tamarind.canCreateDesignDoc(remoteDatabase)
-    await remoteDatabase.createIndex
-      index:
-        fields: ["collection"]
-    .catch (error) =>
-      alert JSON.stringify(error)
-  ###
-
-  ###
-    designDoc = 
-      _id: '_design/reportingMirror'
-      language: "javascript"
-      views:
-        reportingMirror: 
-          map: ((doc) ->
-            if doc._id[0..6] is "result-" or doc.collection is "result" or doc._id[0..16] is "calculated-field_"
-              emit doc._id
-          ).toString()
-    await remoteDatabase.put designDoc
-    .catch (error) => 
-      if error.reason is "You are not a db or server admin."
-        password = prompt "Enter an admin password to setup a local mirror"
-        serverUrlWithAdminCredentials = serverUrlWithCredentials.replace(/\/.*@/, "//admin:#{password}@")
-        return Tamarind.getLocalMirrorForCouchDB(serverUrlWithAdminCredentials, databaseName)
-      console.log designDoc
-      alert JSON.stringify error
-      alert "Using remote DB as local"
-      localDatabaseMirror = remoteDatabase
-      localDatabaseMirror.remoteDatabase = remoteDatabase
-      Promise.resolve()
-
-  unless localDatabaseMirror is remoteDatabase
-    currentNumberOfDocuments = (await localDatabaseMirror.info()).doc_count
-    targetNumberOfDocuments = "Unknown"
-    # Do this asynchronously
-    remoteDatabase.find
-      selector:
-        collection: "result"
-      limit: 500000
-      fields: ["notARealField"]
-    .then (result) => 
-      targetNumberOfDocuments = result.docs.length
-      console.log "targetNumberOfDocuments: #{targetNumberOfDocuments}"
-
-      localDatabaseMirror.replication = localDatabaseMirror.replicate.from remoteDatabase,
-        live: true
-        retry: true
-        batch_size: 10000
-        selector:
-          collection: "result"
-      .on "change", (change) => 
-        percentComplete = (currentNumberOfDocuments + change.docs_written)/parseFloat(targetNumberOfDocuments)
-        localDatabaseMirror.replication.percentComplete = percentComplete
-        console.log "Replication update to #{databaseName}: #{JSON.stringify change.docs_written} docs written. Target #{targetNumberOfDocuments}. Started with #{currentNumberOfDocuments}. Currently have #{currentNumberOfDocuments + change.docs_written}. #{Math.floor(100*percentComplete)}% complete"
-      .on "paused", (info) => 
-        console.log "Replication paused:"
-      .on "active", =>  console.log "Replication active"
-      .on "denied", (error) =>  console.log error
-      .on "error", (error) =>  console.log error
-
-      console.log localDatabaseMirror
-      console.log localDatabaseMirror.replication
-  ###
-  #
-
 Tamarind.updateAvailableFields = (remoteDatabase, localDatabaseMirror) =>
   console.log "Updating available fields"
   remoteDatabase.query "fields",
@@ -249,7 +203,8 @@ Tamarind.updateAvailableFields = (remoteDatabase, localDatabaseMirror) =>
         language: "coffeescript",
         views:
           fields:
-            map: """(doc) ->
+            map: """
+(doc) ->
   if doc.collection is 'result' and doc.question
     for key in Object.keys(doc)
       if key? and key isnt ''
@@ -283,18 +238,24 @@ Tamarind.watchRemoteChangesAndSaveLocally  = (remoteDatabase, localDatabaseMirro
     doc.last_seq = last_seq
     doc
 
+  throttledUpdateChangeSeq = _.throttle ((database,seq) =>
+      database.upsert "_local/remote_last_seq", (doc) =>
+        doc.last_seq = seq
+        doc
+  ), 5000
+
   remoteDatabase.changes
     since: last_seq
     live: true
     include_docs: true
   .on "error", (error) => console.error error
   .on "change", (change) =>
-    if change.doc._id.startsWith "result"
+    if change.doc.collection? is "result"
+      #console.log "Updates to a result doc. seq:#{change.seq}"
       await localDatabaseMirror.put change.doc,
         force: true
-      localDatabaseMirror.upsert "_local/remote_last_seq", (doc) =>
-        doc.last_seq = last_seq
-        doc
+      
+      throttledUpdateChangeSeq(localDatabaseMirror, change.seq)
 
 Tamarind.updateCurrentGateway = =>
   Tamarind.updateGateway(Tamarind.gateway.gatewayName)

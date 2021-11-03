@@ -16,6 +16,8 @@ global.slugify = require("underscore.string/slugify")
 titleize = require("underscore.string/titleize")
 global.camelize = require("underscore.string/camelize")
 global.capitalize = require("underscore.string/capitalize")
+hljs = require 'highlight.js/lib/core';
+hljs.registerLanguage('coffeescript', require ('highlight.js/lib/languages/coffeescript'))
 
 class TabulatorView extends Backbone.View
 
@@ -26,7 +28,22 @@ class TabulatorView extends Backbone.View
     "click #pivotButton": "loadPivotTable"
     "change #includeEmpties": "updateIncludeEmpties"
     "click .toggleNextSection": "toggleNext"
+    "click #applyAdvancedFilter": "applyAdvancedFilter"
 
+
+  applyAdvancedFilter: =>
+    filter = @$("#advancedFilter").val()
+    unless filter.match(/return/)
+      if confirm "No return statement, do you want to add it?"
+        filter = @$("#advancedFilter").val().split(/\n/)
+        lastLine = "return " + filter.pop()
+        filter.push lastLine
+        @$("#advancedFilter").val filter.join("\n")
+        filter = @$("#advancedFilter").val()
+
+    @advancedFilterFunction = new Function('row', Coffeescript.compile(filter, bare:true))
+    console.log @advancedFilterFunction
+    @renderTabulator()
 
   updateIncludeEmpties: =>
     @includeEmptiesInCount = @$("#includeEmpties").is(":checked")
@@ -75,6 +92,19 @@ class TabulatorView extends Backbone.View
       </style>
       <h3>Table #{@toggle(startClosed:false)}</h3>
       <div>
+        <div>Advanced Filter #{@toggle()}</div>
+        <div style='display:none'>
+          <div class='description'>
+            Advanced filters allow you to filter the data in the table with more control than just the matching filters at the top of the column. Each row will be passed as a 'row' object to the function. If it returns false then the row will be removed. This can use this to remove rows that have an empty column, or select for something like 'PF' but not 'NPF'.
+            <div class='example'>Example:<br/>
+              <pre><code>return row.MalariaTestResult is 'PF' and row.TravelLocationName #Must be exactly PF and TravelLocationName must not be empty</code></pre>
+            </div>
+          </div>
+
+
+          <textarea style='width:50%; height:5em;'id='advancedFilter'></textarea>
+          <button id='applyAdvancedFilter'>Apply</button>
+        </div>
         <button id='download'>CSV ↓</button> <small>Add more fields by clicking the box below</small>
         <div id='tabulatorSelector'>
           <select id='availableTitles' multiple></select>
@@ -129,9 +159,12 @@ class TabulatorView extends Backbone.View
     @availableTitles or= @getAvailableColumns()
     availableTitles = _(@availableColumns).pluck("title")
 
+    console.log @initialFields
+    console.log @availableColumns
     @initialTitles = if @initialFields? and @initialFields.length > 0
       for field in @initialFields
-        _(@availableColumns).findWhere(field: field)?.title
+        # This is a little bit of a hack, or maybe it just allows flexibility
+        _(@availableColumns).findWhere(field: field)?.title or _(@availableColumns).findWhere(title: field)?.title
     else
       availableTitles[0..3]
 
@@ -143,12 +176,19 @@ class TabulatorView extends Backbone.View
       choices: choicesData
       shouldSort: false
       removeItemButton: true
-      searchResultLimit: 10
+      searchResultLimit: 20
 
     @$("#availableTitles")[0].addEventListener 'change', (event) =>
       @renderTabulator()
 
     @renderTabulator()
+
+    hljs.configure
+      languages: ["coffeescript", "json"]
+      useBR: false
+
+    @$('pre code').each (i, snippet) =>
+      hljs.highlightElement(snippet);
 
 
   getAvailableColumns: () =>
@@ -218,10 +258,10 @@ class TabulatorView extends Backbone.View
     @fieldsWithPeriodRemoved = []
     @availableColumns = for column in orderedColumnTitlesAndFields
       if column.field.match(/\./)
+        #console.log "Renaming field:#{column.field} due to period: #{column.field.replace(/\./,"")}"
         @fieldsWithPeriodRemoved.push column.field
         column.field = column.field.replace(/\./,"")
       column
-
 
   updateColumnCountOptions: =>
     @$("#columnToCount").html "<option></option>" + (for column in @selector.getValue(true)
@@ -319,33 +359,40 @@ class TabulatorView extends Backbone.View
     selectedColumns = @availableColumns.filter (column) =>
       @selector.getValue(true).includes column.title
 
+    @renderedData = @data
+    if @fieldsWithPeriodRemoved.length > 0 or @advancedFilterFunction
+      @renderedData = []
+      for item in @data
+        for column in @fieldsWithPeriodRemoved
+          item[column.replace(/\./,"")] = item[column]
+        if @advancedFilterFunction
+          if @advancedFilterFunction(item)
+            @renderedData.push item
+        else
+          @renderedData.push item
+
     if @tabulator
       @tabulator.setColumns(selectedColumns)
-      @tabulator.setData @data
+      @tabulator.setData @renderedData
     else
-
-      if @fieldsWithPeriodRemoved.length > 0
-        @data = for item in @data
-          for column in @fieldsWithPeriodRemoved
-            item[column.replace(/\./,"")] = item[column]
-          item
 
       @tabulator = new Tabulator "#tabulatorForTabulatorView",
         height: 500
         columns: selectedColumns
-        data: @data
-        dataFiltered: (filters, rows) =>
-          @$("#numberRows").html(rows.length)
-          _.delay =>
-            @updateColumnCount()
-          , 500
-        dataLoaded: (data) =>
-          @$("#numberRows").html(data.length)
-          _.delay =>
-            @updateColumnCount()
-          , 500
-        rowClick: (event, row) =>
-          @rowClick?(row) # If a rowClick function exists call it - lets others views hook into this
+        data: @renderedData
+      @tabulator.on "dataFiltered", (filters, rows) =>
+        @$("#numberRows").html(rows.length)
+        _.delay =>
+          @updateColumnCount()
+        , 500
+
+      @tabulator.on "dataLoaded", (data) =>
+        @$("#numberRows").html(data.length)
+        _.delay =>
+          @updateColumnCount()
+        , 500
+      @tabulator.on "rowClick", (event, row) =>
+        @rowClick?(row) # If a rowClick function exists call it - lets others views hook into this
 
     @$("#tabulatorForTabulatorView").css("border","5px solid #00bcd4")
     _.delay =>

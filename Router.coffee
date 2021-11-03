@@ -45,6 +45,7 @@ class Router extends Backbone.Router
     @serverView.render()
 
   showDatabase: (serverName, databaseName) =>
+    $("#content").html "<h1>Loading #{databaseName}</h1>"
     await Tamarind.setupDatabase(serverName, databaseName)
     @databaseView ?= new DatabaseView()
     @databaseView.serverName = serverName

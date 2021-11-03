@@ -55,7 +55,7 @@
     "qs": "^0.5.6",
     "sortablejs": "^1.8.3",
     "striptags": "^3.1.1",
-    "tabulator-tables": "^4.8.0",
+    "tabulator-tables": "^5.0.7",
     "twilio": "^3.60.0",
     "underscore": "^1.9.1",
     "underscore.string": "^3.3.5",
