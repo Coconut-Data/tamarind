@@ -22,6 +22,7 @@ PouchDB
 { marshall, unmarshall } = require("@aws-sdk/util-dynamodb")
 
 Router = require './Router'
+User = require './models/User'
 
 
 global.Tamarind =
@@ -84,6 +85,7 @@ Tamarind.setupDynamoDBClient = (serverName, databaseOrGatewayName) =>
   Tamarind.updateGateway(databaseOrGatewayName)
 
 Tamarind.setupCouchDBClient = (serverName, databaseOrGatewayName) =>
+  console.info "Setting up #{serverName} #{databaseOrGatewayName}"
   Tamarind.dynamoDBClient = null
   username = Cookie.get("username")
   password = Cookie.get("password")
@@ -91,6 +93,15 @@ Tamarind.setupCouchDBClient = (serverName, databaseOrGatewayName) =>
     Tamarind.targetUrl = document.location.hash.replace(/#/,"")
     return router.navigate "server/#{Tamarind.serverName}", trigger:true
   serverUrlWithCredentials = "#{Tamarind.knownDatabaseServers[serverName]}".replace(/:\/\//, "://#{username}:#{password}@")
+
+  Tamarind.user = new User()
+
+  if Tamarind.localDatabaseMirror?.remoteDatabase.name is "#{serverUrlWithCredentials}/#{databaseOrGatewayName}"
+
+    if await Tamarind.authenticate(Tamarind.localDatabaseMirror.remoteDatabase)
+      console.info "#{serverName} #{databaseOrGatewayName} already setup"
+    else
+      return
 
   Tamarind.localDatabaseMirror = await Tamarind.getLocalMirrorForCouchDB(serverUrlWithCredentials, databaseOrGatewayName)
   Tamarind.database = Tamarind.localDatabaseMirror.remoteDatabase
@@ -101,6 +112,8 @@ Tamarind.getLocalMirrorForCouchDB = (serverUrlWithCredentials, databaseName) =>
   localDatabaseMirror = new PouchDB("#{serverUrlWithCredentials.replace(/^.*@/,"").replace(/^.*\/\//,"")}/#{databaseName}")
   localDatabaseMirror.remoteDatabase = remoteDatabase
   remoteDatabase.localDatabaseMirror = localDatabaseMirror
+
+  return unless await Tamarind.authenticate(remoteDatabase)
 
   if (await localDatabaseMirror.get("_local/availableFields").catch (error) => Promise.resolve false)
     # Do this in the background 10 seconds later in case there have been updates
@@ -283,6 +296,23 @@ Tamarind.updateQuestionSetForCurrentGateway = (questionSet, options) =>
       Item: marshall(Tamarind.gateway)
     )
   )
+
+Tamarind.authenticate = (database) ->
+  unless await Tamarind.user.authenticate(database)
+    alert "User authentication failed. Logout and try again."
+    console.info "User authentication failed"
+    Tamarind.localDatabaseMirror = null
+    router.navigate "server/#{Tamarind.serverName}", trigger:true
+    return false
+
+  unless Tamarind.user.has "TamarindAccess"
+    alert "User: #{Tamarind.user.username} does not have TamarindAccess. Logout and try again."
+    console.info "User: #{Tamarind.user.username} does not have TamarindAccess"
+    Tamarind.localDatabaseMirror = null
+    router.navigate "server/#{Tamarind.serverName}", trigger:true
+    return false
+
+  return true
 
 global.router = new Router()
 Backbone.history.start()

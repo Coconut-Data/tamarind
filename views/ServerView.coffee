@@ -11,11 +11,11 @@ crypto = require('crypto')
 class ServerView extends Backbone.View
 
   render: =>
-    @login()
+    await @login()
     .catch =>
-      return @renderLoginForm()
+      @renderLoginForm()
+      Promise.resolve()
     .then (databaseList) =>
-
       @$el.html "
         <style>
           li {
@@ -33,6 +33,7 @@ class ServerView extends Backbone.View
             ).join("")
           else
             (for database in databaseList
+              continue unless _(database).isString()
               continue if database.startsWith("_")
               continue if database.match(/backup/)
               continue if database.startsWith("plugin")
@@ -41,27 +42,25 @@ class ServerView extends Backbone.View
         }
         <h1>or select a configured result:</h1>
       "
-
-      Tamarind.configurationDatabase = new PouchDB("#{@getServerUrlWithCredentials()}/tamarind")
-      @$el.append Tamarind.configurationDatabase.allDocs
-        startkey: "configuration"
-        endkey: "configuration_\uf000"
-      .then (result) =>
-        Promise.resolve(for row in result.rows
-          configurationName = row.id.replace(/"configuration_"/,"")
-          "<a href='results/#{Tamarind.serverName}/_configured/#{configurationName}'>#{configurationName}</a>"
-        ).join("")
-
+    $("#title").html "
+      <a href='#'>#{Tamarind.serverName}</a> 
+    "
 
   renderLoginForm: =>
     @$el.html "
       <h1>#{Tamarind.serverName}</h1>
       <div style='margin-left:100px; margin-top:100px; id='usernamePassword'>
         <div>
-          Username: <input id='username'/>
+          Server Username: <input id='username'/>
         </div>
         <div>
-          Password: <input type='password' id='password'/>
+          Server Password: <input type='password' id='password'/>
+        </div>
+        <div>
+          Application Username: <input id='applicationUsername'/>
+        </div>
+        <div>
+          Application Password: <input type='password' id='applicationPassword'/>
         </div>
         <button id='login'>Login</button>
       </div>
@@ -84,6 +83,9 @@ class ServerView extends Backbone.View
   updateUsernamePassword: =>
     Cookie.set "username", @$('#username').val()
     Cookie.set "password", @$('#password').val()
+
+    Cookie.set "applicationUsername", @$('#applicationUsername').val()
+    Cookie.set "applicationPassword", @$('#applicationPassword').val()
 
     if Tamarind.targetUrl
       targetUrl = Tamarind.targetUrl

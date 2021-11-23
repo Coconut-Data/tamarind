@@ -3,11 +3,42 @@ JsonDiffPatch = require 'jsondiffpatch'
 
 class DatabaseView extends Backbone.View
   render: =>
-    @$el.html "<h1>Loading question sets...</h1>"
+    $("#title").html "
+      <a href='#server/#{@serverName}'>#{@databaseName}</a> 
+    "
+    @$el.html "
+      <style>
+        li {
+          padding-top: 1.5em;
+        }
+        li a{
+          font-size: 1.5em;
+        }
+      </style>
+      <div style='display:inline-block; width:45%; vertical-align:top' id='questions'/>
+        <h3>Question Sets Loading...</h3>
+      </div>
+      <div style='display:inline-block; width:45%; vertical-align:top' id='queries'/>
+        <h3>Queries Loading...</h3>
+      </div>
+    "
+
+    Tamarind.localDatabaseMirror.allDocs
+      startkey: "tamarind-queries"
+      endkey: "tamarind-queries_\uf000"
+    .then (result) =>
+      @$("#queries").html "<h3>Queries</h3>" + (for row in result.rows
+        queryName = row.key.replace(/tamarind-queries-/,"")
+        "
+        <li>
+          <a href='#results/#{@serverName}/#{@databaseName}/query/#{queryName}'>#{queryName}</a> 
+        </li>
+        "
+      ).join("")
+
     Tamarind.database.query "questions"
     .catch (error) =>
       if error.name is "not_found"
-        @$el.html "<h1>Creating questions design doc, please wait...</h1>>"
         Tamarind.database.put
           _id: '_design/questions',
           language: "coffeescript",
@@ -19,30 +50,16 @@ class DatabaseView extends Backbone.View
         .then =>
           @render()
     .then (result) =>
-      @$el.html "
-        <style>
-          li {
-            padding-top: 2em;
-          }
-          li a{
-            font-size: 2em;
-          }
-        </style>
-        <h1><a href='#server/#{@serverName}'>#{@databaseName}</a></h1>
-        <h2>Select a question set</h2>
-        <div id='questions'/>
-        </div>
-
-      "
       @questionSets = []
-      @$("#questions").html (for row in result.rows
+      @$("#questions").html "<h3>Question Sets</h3>" +  (for row in result.rows
         @questionSets.push row.id
         "
         <li>
-          <a href='#questionSet/#{@serverName}/#{@databaseName}/#{row.id}'>#{row.id}</a> 
+          <a href='#results/#{@serverName}/#{@databaseName}/#{row.id}'>#{row.id}</a> 
         </li>
         "
       ).join("")
+
 
   events: =>
 

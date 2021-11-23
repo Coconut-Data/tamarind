@@ -31,10 +31,14 @@
 
   <body>
     <div class="jackfruit-layout mdl-layout mdl-js-layout" style="display:block; overflow-x:auto;">
-      <div class="jackfruit-drawer mdl-layout__drawer">
-        <nav class="mdl-navigation">
-          <a href='#'>Home</a>
-          <a style='float:right; margin-right:5px;' href='#logout'>Logout</a>
+      <div style='min-height:18px; padding-top:5px; padding-bottom:5px' class="jackfruit-drawer mdl-layout__drawer">
+        <nav style='text-align:center' class="mdl-navigation">
+          <a style='float:left' href='#'>Home</a>
+          <div style='float:right; margin-right:5px'>
+            <a href='#reset'>Reset</a>
+            <a href='#logout'>Logout</a>
+          </div>
+          <span id='title' style='display:inline-block'></span>
         </nav>
       </div>
 

@@ -18,6 +18,9 @@ global.camelize = require("underscore.string/camelize")
 global.capitalize = require("underscore.string/capitalize")
 hljs = require 'highlight.js/lib/core';
 hljs.registerLanguage('coffeescript', require ('highlight.js/lib/languages/coffeescript'))
+hljs.configure
+  languages: ["coffeescript", "json"]
+  useBR: false
 
 class TabulatorView extends Backbone.View
 
@@ -29,10 +32,17 @@ class TabulatorView extends Backbone.View
     "change #includeEmpties": "updateIncludeEmpties"
     "click .toggleNextSection": "toggleNext"
     "click #applyAdvancedFilter": "applyAdvancedFilter"
+    "click .close": "closeModal"
+
+  closeModal: =>
+    @$("#modal").hide()
 
 
   applyAdvancedFilter: =>
     filter = @$("#advancedFilter").val()
+    if filter is null or filter is ""
+      @advancedFilterFunction = null
+      return
     unless filter.match(/return/)
       if confirm "No return statement, do you want to add it?"
         filter = @$("#advancedFilter").val().split(/\n/)
@@ -49,9 +59,17 @@ class TabulatorView extends Backbone.View
     @includeEmptiesInCount = @$("#includeEmpties").is(":checked")
     @updateColumnCount()
 
-  csv: => @tabulator.download "csv", "#{@questionSet?.name()}-#{moment().format("YYYY-MM-DD_HHmm")}.csv"
+  csv: => 
+    if Tamarind.user.has "CSVDownload"
+      @tabulator.download "csv", "#{@questionSet?.name()}-#{moment().format("YYYY-MM-DD_HHmm")}.csv"
+    else
+      alert "You don't have permission to download CSV data. You can request that the administrator adds CSVDownload to your user account."
 
-  itemCountCSV: => @itemCountTabulator.download "csv", "#{@questionSet?.name()}ItemCount.csv"
+  itemCountCSV: =>
+    if Tamarind.user.has "CSVDownload"
+      @itemCountTabulator.download "csv", "#{@questionSet?.name()}ItemCount.csv"
+    else
+      alert "You don't have permission to download CSV data"
 
   toggleNext: (event) =>
     toggler = $(event.target).closest(".toggleNextSection")
@@ -90,6 +108,13 @@ class TabulatorView extends Backbone.View
           background-color: #7f171f29
         }
       </style>
+      <!-- Element that pops up when row is right clicked to show the full data -->
+      <div style='position:fixed; overflow:scroll; z-index:1; width:100%; height:100%; display:none; background-color:rgba(0,0,0,0.4)' id='modal'>
+        <div style='margin:auto; padding:20px; border: 1px solid #888; background-color:white'>
+          <span class='close'>&times;</span>
+          <div id='dataForCurrentRow'></div>
+        </div>
+      </div>
       <h3>Table #{@toggle(startClosed:false)}</h3>
       <div>
         <div>Advanced Filter #{@toggle()}</div>
@@ -105,7 +130,9 @@ class TabulatorView extends Backbone.View
           <textarea style='width:50%; height:5em;'id='advancedFilter'></textarea>
           <button id='applyAdvancedFilter'>Apply</button>
         </div>
-        <button id='download'>CSV ↓</button> <small>Add more fields by clicking the box below</small>
+        <button id='download' style='#{if Tamarind.user.has "CSVDownload" then "" else "opacity:0.3"}'>
+          CSV ↓
+        </button> <small>Add more fields by clicking the box below</small>
         <div id='tabulatorSelector'>
           <select id='availableTitles' multiple></select>
         </div>
@@ -155,12 +182,11 @@ class TabulatorView extends Backbone.View
         </div>
       </div>
     "
+    unless availableTitles
+      @getAvailableColumns()
 
-    @availableTitles or= @getAvailableColumns()
     availableTitles = _(@availableColumns).pluck("title")
 
-    console.log @initialFields
-    console.log @availableColumns
     @initialTitles = if @initialFields? and @initialFields.length > 0
       for field in @initialFields
         # This is a little bit of a hack, or maybe it just allows flexibility
@@ -394,6 +420,18 @@ class TabulatorView extends Backbone.View
       @tabulator.on "rowClick", (event, row) =>
         @rowClick?(row) # If a rowClick function exists call it - lets others views hook into this
 
+      @tabulator.on "rowContext", (event, row) =>
+        @$("#dataForCurrentRow").html "
+          <pre><code>
+            #{CSON.stringify(row.getData(), null, "  ")}
+          </code></pre>
+        "
+        @$("#modal").show()
+
+        @$('pre code').each (i, snippet) =>
+          hljs.highlightElement(snippet);
+        event.preventDefault()
+
     @$("#tabulatorForTabulatorView").css("border","5px solid #00bcd4")
     _.delay =>
       @$("#tabulatorForTabulatorView").css("border","2px solid #00bcd4")
@@ -425,6 +463,9 @@ class TabulatorView extends Backbone.View
       cols: [@pivotFields[1]]
       rendererName: "Heatmap"
       renderers: _($.pivotUtilities.renderers).extend "CSV Export": (pivotData, opts) ->
+        unless Tamarind.user.has "CSVDownload"
+          alert "You don't have permission for CSV Export"
+          return
         defaults = localeStrings: {}
 
         opts = $.extend(true, {}, defaults, opts)

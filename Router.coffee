@@ -28,10 +28,21 @@ class Router extends Backbone.Router
     "gateway/:serverName/:gatewayName": "showGateway"
     "results/:serverName/:databaseName/query/:queryDocName": "resultsFromQuery"
     "results/:serverName/:databaseName/:questionSetDocId": "results"
-    "questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId": "questionSet"
-    "questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId/:question": "questionSet"
+    #"questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId": "questionSet"
+    #"questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId/:question": "questionSet"
+    "reset": "reset"
     "logout": "logout"
     "": "default"
+
+  reset: =>
+    if Tamarind.localDatabaseMirror?
+      databaseName = Tamarind.localDatabaseMirror.name.replace(/.*\//,"")
+      if confirm "Are you sure you want to reset the data in your browser for database: #{databaseName}? It can take a long time to download data and index it?"
+        await Tamarind.localDatabaseMirror.destroy()
+        $("#content").html  "<h1>#{databaseName} reset<h1>... Returning to reset database: #{databaseName}."
+        _.delay =>
+          router.navigate "database/#{Tamarind.serverName}/#{databaseName}", trigger:true
+        , 2000
 
   selectServer: =>
     @selectServerView ?= new SelectServerView()
@@ -72,7 +83,6 @@ class Router extends Backbone.Router
     @questionSetView.render()
 
   resultsFromQuery: (serverName, databaseName, queryDocName) =>
-    new PouchDB("")
     await Tamarind.setupDatabase(serverName, databaseName)
     @resultsView ?= new ResultsView()
     @resultsView.serverName = serverName
