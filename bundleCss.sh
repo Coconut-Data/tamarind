@@ -9,4 +9,5 @@ css/tabulator.min.css
 css/choices.min.css
 css/pivot.min.css
 css/daterangepicker.css
+css/leaflet.css
 " | xargs cat | npx uglifycss > css/bundle-css.min.css

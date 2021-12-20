@@ -15,6 +15,7 @@ class DatabaseView extends Backbone.View
           font-size: 1.5em;
         }
       </style>
+      <iframe class='help' style='display:none; float:right' width='420' height='315' src='https://www.youtube.com/embed/XIYbJBXd9OU'></iframe>
       <div style='display:inline-block; width:45%; vertical-align:top' id='questions'/>
         <h3>Question Sets Loading...</h3>
       </div>

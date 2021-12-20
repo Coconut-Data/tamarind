@@ -10,8 +10,9 @@ Choices = require 'choices.js'
 distinctColors = (require 'distinct-colors').default
 Chart = require 'chart.js'
 ChartDataLabels = require 'chartjs-plugin-datalabels'
-
 PivotTable = require 'pivottable'
+Leaflet = require 'leaflet'
+
 global.slugify = require("underscore.string/slugify")
 titleize = require("underscore.string/titleize")
 global.camelize = require("underscore.string/camelize")
@@ -33,6 +34,80 @@ class TabulatorView extends Backbone.View
     "click .toggleNextSection": "toggleNext"
     "click #applyAdvancedFilter": "applyAdvancedFilter"
     "click .close": "closeModal"
+    "click #drawMap": "drawMap"
+    "click .showImage": "showImage"
+    "change #allowEdits": "toggleAllowEdits"
+    "click #saveEdits": "saveEdits"
+    "click #undoEdits": "undoEdits"
+
+  saveEdits: =>
+    confirmedChanges = {}
+    for cell in @tabulator.getEditedCells()
+      field = cell.getColumn().getField()
+      docId = cell.getData()?._id
+
+      if confirm("Are you sure you want to change: #{docId} field: #{field} from #{cell.getInitialValue()} to #{cell.getValue()}")
+        confirmedChanges[docId] or= {}
+        confirmedChanges[docId][field] = cell.getValue()
+
+    updatedDocs = for docId, fieldWithNewValue of confirmedChanges
+      updatedDoc = await Tamarind.localDatabaseMirror.get(docId)
+      for field, newValue of fieldWithNewValue
+        if updatedDoc[field]?
+          updatedDoc[field] = newValue
+        else
+          if confirm "Current doc does not have the field #{field}, are you sure you want to add this?"
+            updatedDoc[field] = newValue
+      updatedDoc
+
+    await Tamarind.localDatabaseMirror.bulkDocs updatedDocs
+
+    if confirm "Local database updated (you can use the RESET button to undo this and reset your local database to match the server). Do you also want to make these changes on the server: #{Tamarind.localDatabaseMirror.remoteDatabase.name.replace(/\/\/.*@/,"//")} (this will NOT be undo-able!)?"
+      Tamarind.localDatabaseMirror.replicate.to Tamarind.localDatabaseMirror.remoteDatabase,  
+        doc_ids: _(updatedDocs).pluck("_id")
+      .on "complete", =>
+        alert "Remote server updated"
+
+    console.log updatedDocs
+    @tabulator.clearCellEdited()
+    @$("#saveEdits").hide()
+    @$("#undoEdits").hide()
+
+
+
+
+  toggleAllowEdits: =>
+    @editsEnabled = @$("#allowEdits").is(":checked")
+    @renderTabulator()
+
+  showImage: (event) =>
+    @$("#dataForCurrentRow").html "<img src='#{$(event.target).attr("data-image")}'>"
+    @$("#modal").show()
+
+  drawMap: =>
+    @map or= Leaflet.map @$('#map')[0],
+      zoomSnap: 0.2
+    .fitBounds [
+      # Zanzibar by default
+      [-4.8587000, 39.8772333],
+      [-6.4917667, 39.0945000]
+    ]
+    Leaflet.tileLayer('http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      maxZoom: 19,
+      attribution: '&copy; OSM Mapnik <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    ).addTo(@map).bringToBack()
+
+    longitudeProperty = @$("#longitudeColumn").val()
+    latitudeProperty = @$("#latitudeColumn").val()
+
+    markers = for rowData in @tabulator.getData("active")
+      latitude = rowData[latitudeProperty]
+      longitude = rowData[longitudeProperty]
+      Leaflet.marker([latitude,longitude]).bindPopup(rowData)
+
+    group = Leaflet.featureGroup(markers).addTo(@map)
+    @map.fitBounds(group.getBounds())
+
 
   closeModal: =>
     @$("#modal").hide()
@@ -60,13 +135,13 @@ class TabulatorView extends Backbone.View
     @updateColumnCount()
 
   csv: => 
-    if Tamarind.user.has "CSVDownload"
+    if Tamarind.user.has "Tamarind CSV"
       @tabulator.download "csv", "#{@questionSet?.name()}-#{moment().format("YYYY-MM-DD_HHmm")}.csv"
     else
-      alert "You don't have permission to download CSV data. You can request that the administrator adds CSVDownload to your user account."
+      alert "You don't have permission to download CSV data. You can request that the administrator adds CSV permission to your user account."
 
   itemCountCSV: =>
-    if Tamarind.user.has "CSVDownload"
+    if Tamarind.user.has "Tamarind CSV"
       @itemCountTabulator.download "csv", "#{@questionSet?.name()}ItemCount.csv"
     else
       alert "You don't have permission to download CSV data"
@@ -130,9 +205,15 @@ class TabulatorView extends Backbone.View
           <textarea style='width:50%; height:5em;'id='advancedFilter'></textarea>
           <button id='applyAdvancedFilter'>Apply</button>
         </div>
-        <button id='download' style='#{if Tamarind.user.has "CSVDownload" then "" else "opacity:0.3"}'>
-          CSV ↓
-        </button> <small>Add more fields by clicking the box below</small>
+        <div>
+          <div style='float:right; #{if @allowEdits then "" else "display:none"}'>
+            Allow Edits<input style='accent-color:#00bcd4' type='checkbox' id='allowEdits'></input>
+            <button style='display:none' type='button' id='saveEdits'>Save Edits</button>
+            <button style='display:none' type='button' id='undoEdits'>Undo Edits</button>
+          </div>
+          <button id='download' style='#{if Tamarind.user.has "Tamarind CSV" then "" else "opacity:0.3"}'>CSV ↓</button> 
+          <small>Add more fields by clicking the box below</small>
+        </div>
         <div id='tabulatorSelector'>
           <select id='availableTitles' multiple></select>
         </div>
@@ -175,10 +256,15 @@ class TabulatorView extends Backbone.View
 
         <h4>Maps#{@toggle()}</h4>
         <div style='display:none' id='mappingDiv'>
-          If the data includes a longitude and latitude field it will be mapped here.
+          If the data in the table includes the longitude and latitude field specified below it will be mapped here.
           <li>TODO: Animated Time series
           <li>TODO: Group by count and adjust dot size/heat map
-          <div id='map'></div>
+          <br/>
+          Longitude Column: <input id='longitudeColumn' value='gps-location-longitude'></input><br/>
+          Latitude Column: <input id='latitudeColumn' value='gps-location-latitude'></input><br/>
+
+          <button id='drawMap'>Draw/Update Map</button>
+          <div style='width:auto; height:500px' id='map'></div>
         </div>
       </div>
     "
@@ -189,8 +275,13 @@ class TabulatorView extends Backbone.View
 
     @initialTitles = if @initialFields? and @initialFields.length > 0
       for field in @initialFields
-        # This is a little bit of a hack, or maybe it just allows flexibility
-        _(@availableColumns).findWhere(field: field)?.title or _(@availableColumns).findWhere(title: field)?.title
+        # Allow this initialFields to refer to either the title or the field name or the title slugified
+        _(@availableColumns).find (column) =>
+          column.field is field or
+          column.title is field or
+          column.title is slugify(field)
+        ?.title
+
     else
       availableTitles[0..3]
 
@@ -282,11 +373,16 @@ class TabulatorView extends Backbone.View
 
     # Having periods in the column name breaks things, so take them out
     @fieldsWithPeriodRemoved = []
+    console.log orderedColumnTitlesAndFields
     @availableColumns = for column in orderedColumnTitlesAndFields
       if column.field.match(/\./)
         #console.log "Renaming field:#{column.field} due to period: #{column.field.replace(/\./,"")}"
         @fieldsWithPeriodRemoved.push column.field
         column.field = column.field.replace(/\./,"")
+      if column.field.match(/photo/i)
+        # TODO make this faster by not putting image data here and looking it up only when the image is clicked.
+        column.formatter = (cell) =>
+          "<button class='showImage' type='button' data-image='#{cell.getValue()}'>Show Image</button>"
       column
 
   updateColumnCountOptions: =>
@@ -385,6 +481,13 @@ class TabulatorView extends Backbone.View
     selectedColumns = @availableColumns.filter (column) =>
       @selector.getValue(true).includes column.title
 
+    # Toggle editing of cells
+    selectedColumns = for column in selectedColumns
+      column.editor = if @editsEnabled then "input" else undefined
+      column
+
+
+
     @renderedData = @data
     if @fieldsWithPeriodRemoved.length > 0 or @advancedFilterFunction
       @renderedData = []
@@ -432,6 +535,11 @@ class TabulatorView extends Backbone.View
           hljs.highlightElement(snippet);
         event.preventDefault()
 
+    if @editsEnabled
+      @tabulator.on "cellEdited", =>
+        @$("#saveEdits").show()
+        @$("#undoEdits").show()
+
     @$("#tabulatorForTabulatorView").css("border","5px solid #00bcd4")
     _.delay =>
       @$("#tabulatorForTabulatorView").css("border","2px solid #00bcd4")
@@ -463,7 +571,7 @@ class TabulatorView extends Backbone.View
       cols: [@pivotFields[1]]
       rendererName: "Heatmap"
       renderers: _($.pivotUtilities.renderers).extend "CSV Export": (pivotData, opts) ->
-        unless Tamarind.user.has "CSVDownload"
+        unless Tamarind.user.has "Tamarind CSV"
           alert "You don't have permission for CSV Export"
           return
         defaults = localeStrings: {}

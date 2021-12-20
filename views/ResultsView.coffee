@@ -13,8 +13,6 @@ global.CSON = require 'cson-parser'
 require 'daterangepicker'
 moment = require 'moment'
 
-AsyncFunction = Object.getPrototypeOf(`async function(){}`).constructor; # Strange hack to build AsyncFunctions https://davidwalsh.name/async-function-class
-
 {QueryCommand,DeleteItemCommand} = require "@aws-sdk/client-dynamodb"
 {marshall,unmarshall} = require("@aws-sdk/util-dynamodb")
 
@@ -85,11 +83,21 @@ class ResultsView extends Backbone.View
   getQueryDoc: =>
     queryDoc = new QueryDoc()
     queryDoc.Name = @queryDocName or "#{@questionSet?.name()}-default" or throw "No query configuration"
+    console.log queryDoc
     await queryDoc.fetch()
     .catch (error) =>
-      console.log "No query doc, creating default one."
-      if @questionSet?.name() and await Tamarind.localDatabaseMirror.get("tamarind-indexes-Results By Question And Date").catch( (error) => Promise.resolve null)
-        queryDoc.Index = "Results By Question And Date"
+      console.log "No query doc, creating default one for #{@questionSet?.name()}"
+      queryDoc.Index = "Results By Question And Date"
+      await Tamarind.localDatabaseMirror.get("tamarind-indexes-Results By Question And Date").catch =>
+        if confirm "Creating a new query doc: #{queryDoc.Name}, but the normal index and 'Results By Question and Date' doesn't exist. Do you want to create it?"
+          await Tamarind.localDatabaseMirror.put
+            _id: "tamarind-indexes-Results By Question And Date"
+            Name: "Results By Question And Date"
+            Fields: "question, createdAt"
+        else
+          queryDoc.Index = "_all_docs"
+          
+      if @questionSet?.name() and queryDoc.Index is "Results By Question And Date"
         queryDoc["Query Field Options"] = [
           {
             field: 'question'
@@ -116,23 +124,6 @@ class ResultsView extends Backbone.View
 
     queryDoc
 
-  # TODO change this to take a queryDoc as an argument
-  # TODO allows multiple query docs
-  # TODO some kind of merging when multiple query docs
-  getResults: (options = {}) =>
-
-    ###
-    unless @queryDoc
-      # Setup the default queryDoc
-      @queryDoc = new QueryDoc()
-      @queryDoc.Name = "#{@questionSet}-default"
-    ###
-
-    @setCurrentlySelectedFields()
-    @$("#messages").append "<h2>Using query: #{@queryDoc.Name}</h2>"
-    @queryDoc.getResults(options)
-    # Consider pruning the object to just the displayed columns - use 
-
   setCurrentlySelectedFields: =>
     @currentlySelectedFields = if @currentlySelectedFields?
       @currentlySelectedFields
@@ -144,52 +135,23 @@ class ResultsView extends Backbone.View
   getResultsWithCalculatedFields: =>
     @setCurrentlySelectedFields()
 
-    if @availableCalculatedFieldDocs?.length > 0
-      if @currentlySelectedFields?.length > 0
-        availableCalculatedFieldTitles = _(@availableCalculatedFieldDocs).pluck("Title")
+    console.log @currentlySelectedFields
 
-        currentlySelectedCalculatedFieldTitles = _.intersection(@currentlySelectedFields, availableCalculatedFieldTitles)
+    if @availableCalculatedFieldDocs?.length > 0 and @currentlySelectedFields?.length > 0
+      # Get the intersection of the TITLES
+      availableCalculatedFieldTitles = _(@availableCalculatedFieldDocs).pluck("Title")
+      currentlySelectedCalculatedFieldTitles = _.intersection(@currentlySelectedFields, availableCalculatedFieldTitles)
 
-    currentlySelectedCalculatedFields = @availableCalculatedFieldDocs.filter (field) =>
-      currentlySelectedCalculatedFieldTitles?.includes field.Title
+    @$("#messages").append "<h2>Using query: #{@queryDoc.Name}</h2>"
+    @queryDoc.getResults
+      # Preserves the order of the calculated fields as selected in the UI
+      selectedCalculatedFields: currentlySelectedCalculatedFieldTitles?.map (title) =>
+        _(@availableCalculatedFieldDocs).findWhere Title: title
 
-    if currentlySelectedCalculatedFields.length > 0
-      extraFieldsNeededForCalculatedFields = []
-      for calculatedField in currentlySelectedCalculatedFields
-        for match in (calculatedField.Calculation + calculatedField.Initialize).match(/(result\[.+?\])|result.[a-zA-Z-_]+/g)
-          fieldName = match.replace(/result\./,"")
-          .replace(/result\[['"]/,"")
-          .replace(/['"]\]/,"")
-          extraFieldsNeededForCalculatedFields.push fieldName
-
-        if calculatedField.Initialize
-          # https://stackoverflow.com/questions/1271516/executing-anonymous-functions-created-using-javascript-eval
-          try
-            initializeFunction = new AsyncFunction(Coffeescript.compile(calculatedField.Initialize, bare:true))
-          catch error then alert "Error compiling #{calculatedField.Title}: #{error}\n#{CSON.stringify calculatedField, null, "  "}"
-          await initializeFunction()
-
-        # Might be faster to use new Function if there is no need of async here
-        calculatedField.calculationFunction = new AsyncFunction('result', 
-          try
-            Coffeescript.compile(calculatedField.Calculation, bare:true)
-          catch error then alert "Error compiling #{calculatedField.Title}: #{error}\n#{CSON.stringify calculatedField, null, "  "}"
-        )
-
-      extraFieldsNeededForCalculatedFields = _(extraFieldsNeededForCalculatedFields).unique()
-
-      results = await @getResults(extraFieldsNeededForCalculatedFields: extraFieldsNeededForCalculatedFields)
-      @$("#messages").append "<h2>Adding Calculated Fields</h2>"
-      for result in results
-        for calculatedField in currentlySelectedCalculatedFields
-          result[calculatedField.Title] = await calculatedField.calculationFunction(result)
-        result
-    else
-
-      @getResults()
 
   render: =>
     @$el.html "
+      <iframe class='help' style='display:none; float:right' width='420' height='315' src='https://www.youtube.com/embed/QJegoUtmu60'></iframe>
       <style>#{@css()}</style>
       <div style='float:right; width:50%; background-color:#7f171f29;' id='messages'>
         <div id='dataChangesMessages'></div>
@@ -222,6 +184,7 @@ class ResultsView extends Backbone.View
     for type in ["indexes","queries","calculated-fields"]
       @tabulatorWithFormViews[type] = await TabulatorWithFormView.create(type)
       @tabulatorWithFormViews[type].setElement @$("##{type}")
+      @$("##{type}").hide() unless Tamarind.user.has("Tamarind Indexes Queries Calculated-Fields")
       await @tabulatorWithFormViews[type].render()
 
     @tabulatorView = new TabulatorView()
@@ -233,7 +196,7 @@ class ResultsView extends Backbone.View
       include_docs: true
     .then (result) => Promise.resolve(row.doc for row in result.rows)
 
-    @tabulatorView.availableCalculatedFields = _(@availableCalculatedFieldDocs).pluck "Title"
+    @tabulatorView.availableCalculatedFields = _(@availableCalculatedFieldDocs).pluck "Name"
 
     @queryDoc = await @getQueryDoc()
     console.log @queryDoc
@@ -242,6 +205,8 @@ class ResultsView extends Backbone.View
       @tabulatorView.questionSet = @questionSet
     @addQueryFilters()
     # empty string is falsy
+    console.log @tabulatorView.initialFields
+    console.log @queryDoc
     @tabulatorView.initialFields = if @tabulatorView.initialFields then @queryDoc?["Initial Fields"]?.split(/, */)
 
     if @questionSet?
@@ -275,7 +240,11 @@ class ResultsView extends Backbone.View
 
   queryAndLoadTable: =>
     @tabulatorView.data = await @getResultsWithCalculatedFields()
+    @tabulatorView.initialFields = @currentlySelectedFields
+    console.log @currentlySelectedFields
     @$("#messages").html ""
+    if Tamarind.user.has "Tamarind Editing"
+      @tabulatorView.allowEdits = true
     if @tabulatorView.tabulator
       @tabulatorView.renderTabulator()
     else
@@ -315,7 +284,7 @@ class ResultsView extends Backbone.View
 
               for value in ["startValue", "endValue"]
                 if filterField[value] is "now"
-                  filterField[value] = moment().format("YYYY-MM-DD")
+                  filterField[value] = moment().add(1,"day").format("YYYY-MM-DD")
 
               @$("##{elementId}").daterangepicker
                 "startDate": filterField.startValue

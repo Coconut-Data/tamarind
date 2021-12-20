@@ -25,6 +25,7 @@ class ServerView extends Backbone.View
             font-size: 1em;
           }
         </style>
+        <iframe class='help' style='display:none; float:right' width='420' height='315' src='https://www.youtube.com/embed/eMxO_U-i2Hc'></iframe>
         <h1>Select a #{if @isDynamoDB then "Gateway" else "database"}:</h1>
         #{
           if @isDynamoDB

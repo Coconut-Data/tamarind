@@ -35,6 +35,17 @@ class TabulatorWithFormView extends Backbone.View
     "change .updateSampleResultOnChange": "updateResultFromSample"
     "click .toggleNext": "toggleNext"
     "change .actionOnChange": "actionOnChange"
+    "change #queries--index": "toggleCombinedQueryOptions"
+
+  toggleCombinedQueryOptions: =>
+    console.log "ZZZ"
+    for field in ["Combine Queries", "Join Field", "Prefix"]
+      if @$("#queries--index").val() is "Combine Queries"
+          @$("#section-queries-#{dasherize(field)}").show()
+          @$("#section-queries--query-field-options").hide()
+      else
+          @$("#section-queries-#{dasherize(field)}").hide()
+          @$("#section-queries--query-field-options").show()
 
   # If a field has an actionOnChange property then we look it up and run it when this changes
   actionOnChange: (event) =>
@@ -107,9 +118,9 @@ class TabulatorWithFormView extends Backbone.View
             (for property in @properties
               id = "#{@type}-#{dasherize(property.name)}"
               "
-              <div id='section-#{id}'>
-                <span>#{property.name}: #{ if property.hide then @toggle() else ""}</span>
-                  <div style='#{if property.hide then "display:none" else ""}'>
+              <div id='section-#{id}' style='#{if property.hide is true then 'display:none' else ''}'>
+                <span>#{property.name}: #{ if property.hide is "toggle" then @toggle() else ""}</span>
+                  <div style='#{if property.hide is "toggle" then "display:none" else ""}'>
                   <div class='description'>#{property.description}</div>
                   #{ 
                   if property.example
@@ -374,7 +385,7 @@ class TabulatorWithFormView extends Backbone.View
                 name = doc.name or \#{doc.FirstName + " " + doc.LastName}
                 emit [name,doc.date]
             """
-            hide: true
+            hide: "toggle"
           ]
 
         when "queries"
@@ -397,37 +408,11 @@ class TabulatorWithFormView extends Backbone.View
                   "<option></option>" + (for row in result.rows
                     indexName = row.key.replace(/tamarind-indexes-/,"")
                     "<option>#{indexName}</option>"
-                  ).join("")
+                  ).join("") + "<option>Combine Queries</option>"
                 )
           ,
-            name: "Query Field Options"
-            description: "Fields to display to user for filtering the query, like date or region. This happens at the query stage not within the table. The array order must match the Fields above. The format here is CSON, it's like JSON but easier to read (no need for commas, double quotes, etc), and you do need to ident it properly."
-            type: "coffeescript"
-            example: CSON.stringify [
-              {field:'question', equals: "#{currentQuestionSetName or "CHANGE TO NAME OF TARGET QUESTION"}", userSelectable: false}
-              {field:'createdAt', type: "Date Range", startValue: "#{moment().startOf("year").format("YYYY-MM-DD")}", endValue: 'now', userSelectable: true}
-            ]
-            , null, "  "
-          ,
-            name: "Initial Fields"
-            description: "Fields that will be displayed in the table when first loaded. If left blank, it gets the first 4 most frequently filled fields."
-            default: ""
-            example: "createdAt, name"
-          ,
-            name: "Limit"
-            description: "Total number of results to load. A large number of results (> 10000) can slow things down."
-            default: "10000"
-          , 
-            name: "Query Options"
-            description: "Options to add to the query. Options available include: startkey, endkey, limit, ascending, include_docs"
-            type: "coffeescript"
-            default: ""
-            example: CSON.stringify
-              startkey: "2020-01-01"
-              include_docs: false
-            , null, "  "
-          ,
             name: "Combine Queries"
+            hide: true
             description: "You can combine the results of two or more queries into one table by selecting the queries here and then choosing a field to join them with. ORDER MATTERS. The first query determines the number of rows and subsequent queries get added to these rows."
             type: "choices"
             options: await Tamarind.localDatabaseMirror.allDocs
@@ -455,19 +440,48 @@ class TabulatorWithFormView extends Backbone.View
               #).join())
           ,
             name: "Join Field"
+            hide: true
             description: "This is the field that should appear in the results of both queries and will be used to combine them into one row."
             type: "text"
           ,
             name: "Prefix"
+            hide: true
             description: "This adds a prefix to the column name, which can be helpful to keep track of the source of the data. If this is blank it will use the field question as the prefix. To disable enter the word 'false'."
             type: "text"
+          ,
+            name: "Query Field Options"
+            description: "Fields to display to user for filtering the query, like date or region. This happens at the query stage not within the table. The array order must match the Fields above. The format here is CSON, it's like JSON but easier to read (no need for commas, double quotes, etc), and you do need to ident it properly."
+            type: "coffeescript"
+            example: CSON.stringify [
+              {field:'question', equals: "#{currentQuestionSetName or "CHANGE TO NAME OF TARGET QUESTION"}", userSelectable: false}
+              {field:'createdAt', type: "Date Range", startValue: "#{moment().startOf("year").format("YYYY-MM-DD")}", endValue: 'now', userSelectable: true}
+            ]
+            , null, "  "
+          ,
+            name: "Initial Fields"
+            description: "Fields that will be displayed in the table when first loaded. If left blank, it gets the first 4 most frequently filled fields."
+            default: ""
+            example: "createdAt, name"
+          ,
+            name: "Limit"
+            description: "Total number of results to load. A large number of results (> 10000) can slow things down."
+            default: "10000"
+          , 
+            name: "Query Options"
+            description: "Options to add to the query. Options available include: startkey, endkey, limit, ascending, include_docs"
+            type: "coffeescript"
+            default: ""
+            example: CSON.stringify
+              startkey: "2020-01-01"
+              include_docs: false
+            , null, "  "
           ]
 
         when "calculated-fields"
           type: "calculated-fields"
           description: "Calculated fields are fields that get calculated for each result. This is similar to creating a formula in a spreadsheet. For example, we often ask two questions to get someone's age: their age and whether that age is in years, months or days. However, to compare this data it should all be converted into the same unit, so we create a calculated value called 'Age in Years'. This calculation checks what the type of age it is, then divides the age to return the age in years. This calculated value then appears as a new column in the results table."
           properties: [
-            name: "Title"
+            name: "Name"
             description: "The name of the calculated field."
           ,
             name: "Calculation"

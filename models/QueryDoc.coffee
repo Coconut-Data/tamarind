@@ -1,4 +1,5 @@
 _ = require 'underscore'
+AsyncFunction = Object.getPrototypeOf(`async function(){}`).constructor; # Strange hack to build AsyncFunctions https://davidwalsh.name/async-function-class
 
 class QueryDoc
 
@@ -14,25 +15,30 @@ class QueryDoc
       @["Query Field Options"] = CSON.parse(@["Query Field Options"])
 
   getResults: (options = {}) =>
+    console.log options
 
-    console.info "getResults for:"
-    console.info @
+    #console.info "getResults for: #{CSON.stringify @, null, " "}"
 
-    if @["Combine Queries"]
+    if @["Combine Queries"]?.length > 0
+      console.log "Combine Queries"
       results = []
       joinMap = {}
       for query,queryIndex in @["Combine Queries"]
         queryDoc = new QueryDoc()
         queryDoc.Name = query
-        console.log "************"
-        console.log queryDoc.Name
-        console.log "************"
+        console.log "************ #{queryDoc.Name} ************"
         await queryDoc.fetch()
         prefix = if @["Prefix"] is "false"
           ""
         else
           queryDoc["Prefix"] or "_question"
         options.rawResult = true
+
+        # If the join field is a calculated field then add it as a selectedCalculatedField
+        joinCalculatedField = await Tamarind.localDatabaseMirror.get("tamarind-calculated-fields-#{@["Join Field"]}")
+        .catch => Promise.resolve null
+        options.selectedCalculatedFields or= []
+        options.selectedCalculatedFields.push(joinCalculatedField) if joinCalculatedField
 
         # recurse!
         for result in await queryDoc.getResults(options)
@@ -66,6 +72,8 @@ class QueryDoc
               # IGNORE SUBSEQUENT QUERIES THAT DON'T HAVE AN EXISTING joinFieldValue
         console.log results
         console.log joinMap
+
+        alert "Undefined joinfield #{@["Join Field"]} when querying #{@Name}. Each row was undefined for the joinfield." if joinMap[undefined]? and Object.keys(joinMap).length is 1
 
 
       console.log results
@@ -104,6 +112,9 @@ class QueryDoc
 
       await( if @Index is "_all_docs"
         Tamarind.localDatabaseMirror.allDocs(queryOptions)
+      else if @Index is "Combine Queries"
+        alert "Invalid combine queries - no queries selected"
+        throw "Invalid combine queries - no queries selected"
       else
         Tamarind.localDatabaseMirror.query(@indexDoc.Name, queryOptions)
       ).catch (error) => 
@@ -117,8 +128,40 @@ class QueryDoc
           console.error error
           alert "Error #{JSON.stringify error} + when querying #{@indexDoc.Name} with options:\n#{CSON.stringify queryOptions, null, "  "}"
       .then (result) => 
-        console.log result
         alert "Result limit of #{queryOptions.limit} reached. There are probably more results for this query than are shown. You can change the limit by editing the query." if result.rows.length is queryOptions.limit
+
+
+        console.log options
+
+        if options.selectedCalculatedFields?.length > 0
+          console.log "Query includes calculated fields"
+          for calculatedField in options.selectedCalculatedFields
+
+            if calculatedField.Initialize
+              # https://stackoverflow.com/questions/1271516/executing-anonymous-functions-created-using-javascript-eval
+              try
+                initializeFunction = new AsyncFunction(Coffeescript.compile(calculatedField.Initialize, bare:true))
+              catch error then alert "Error compiling #{calculatedField.Name}: #{error}\n#{CSON.stringify calculatedField, null, "  "}"
+              await initializeFunction()
+
+            # Might be faster to use new Function if there is no need of async here
+            calculatedField.calculationFunction = new AsyncFunction('result', 
+              try
+                Coffeescript.compile(calculatedField.Calculation, bare:true)
+              catch error then alert "Error compiling #{calculatedField.Name}: #{error}\n#{CSON.stringify calculatedField, null, "  "}"
+            )
+
+          # TODO check if calculated field depends on other calculated fields and check for circular dependencies
+          # Note that the order selected is preserved so dependencies can be forced by including them manually at the beginning of the fields list
+
+          message = "Adding Calculated Fields: #{options.selectedCalculatedFields.map( (field) => field.Name).join(", ")}"
+          $("#messages").append "<h2>#{message}</h2>"
+          console.log message
+          result.rows.forEach (row) ->
+            options.selectedCalculatedFields.forEach (calculatedField) ->
+              row.doc[calculatedField.Name] = await calculatedField.calculationFunction(row.doc)
+
+        console.log result
 
         if options.rawResult
           Promise.resolve(result.rows)
@@ -127,9 +170,21 @@ class QueryDoc
 
   createOrUpdateDesignDocIfNeeded: () =>
     return if @Index is "_all_docs"
-    alert "Query doc has no index" unless @Index
+    unless @Index
+      console.log @
+      alert "Query doc has no index"
     indexDocId = "tamarind-indexes-#{@Index}"
-    @indexDoc = await Tamarind.localDatabaseMirror.get(indexDocId).catch (error) => Promise.resolve null
+    @indexDoc = await Tamarind.localDatabaseMirror.get(indexDocId).catch (error) => 
+      if @Index is "Results By Question And Date" and confirm "'Results By Question and Date' doesn't exist. Do you want to create it?"
+        newIndexDoc =
+          _id: "tamarind-indexes-Results By Question And Date"
+          Name: "Results By Question And Date"
+          Fields: "question, createdAt"
+        await Tamarind.localDatabaseMirror.put newIndexDoc
+        .then => Promise.resolve newIndexDoc
+      else
+        Promise.resolve null
+
     alert "Index doc: #{indexDocId} can't be loaded." unless @indexDoc
 
     mapFunction = if @indexDoc["Map Function"]
@@ -140,6 +195,12 @@ class QueryDoc
       if fields.length > 1
         """
         (doc) =>
+          #{
+          if fields[0] is "question"
+            "return unless doc.question"
+          else
+            ""
+          }
           emit [
             #{fields.map( (field) => 
               "doc['#{field}']")

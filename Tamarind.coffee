@@ -34,7 +34,7 @@ global.Tamarind =
     Local: "http://localhost:5984"
     MikeAWS:
       region: "us-east-1"
-      IdentityPoolId: 'us-east-1:fda4bdc9-5adc-41a0-a34e-3156f7aa6691'
+      IdentityPoolId: 'us-east-1:#INSERT HERE"
   gooseberryEndpoint: "https://f9l1259lmb.execute-api.us-east-1.amazonaws.com/gooseberry"
 
 Tamarind.serverCredentials = {}
@@ -305,7 +305,7 @@ Tamarind.authenticate = (database) ->
     router.navigate "server/#{Tamarind.serverName}", trigger:true
     return false
 
-  unless Tamarind.user.has "TamarindAccess"
+  unless Tamarind.user.has "Tamarind Access"
     alert "User: #{Tamarind.user.username} does not have TamarindAccess. Logout and try again."
     console.info "User: #{Tamarind.user.username} does not have TamarindAccess"
     Tamarind.localDatabaseMirror = null
