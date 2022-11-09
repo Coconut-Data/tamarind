@@ -1,1 +1,0 @@
-console.error("Error: Can't walk dependency graph: ENOENT: no such file or directory, lstat '/home/jeikei/tamarind/process'\n    required by /home/jeikei/tamarind/node_modules/@aws-sdk/credential-provider-cognito-identity/node_modules/@aws-sdk/util-user-agent-node/dist-cjs/index.js");
