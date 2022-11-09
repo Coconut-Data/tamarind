@@ -240,6 +240,7 @@ class ResultsView extends Backbone.View
 
   queryAndLoadTable: =>
     @tabulatorView.data = await @getResultsWithCalculatedFields()
+    console.log @tabulatorView.data
     @tabulatorView.initialFields = @currentlySelectedFields
     console.log @currentlySelectedFields
     @$("#messages").html ""

@@ -19,6 +19,7 @@ class User
       false
 
   has: (property) =>
+    return true
     return @[property]? and not ["no", "false", false].includes @[property]
 
 module.exports = User
