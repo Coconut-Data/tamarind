@@ -247,12 +247,12 @@ class TabulatorWithFormView extends Backbone.View
       return if cell.getColumn().getField() is "enabled"
       @editItem cell.getData()
 
-
   editItem: (data) =>
     console.log data
     for property in @properties
+      console.log property
       if property.type is "choices"
-        @sortableChoices.setChoiceByValue data[property.name]
+        @sortableChoices?.setChoiceByValue data[property.name]
       else
         @$("##{@type}-#{dasherize(property.name)}")[0].value = data[property.name]
     @updateResultFromSample()
@@ -302,7 +302,6 @@ class TabulatorWithFormView extends Backbone.View
     "
 
     @updateResultFromSample()
-    console.log "ASDASDAASD"
     @$("#codeUsed").html @resultsView.queryDoc.queryCodeString
     @$('#codeUsed').each (i, snippet) =>
       hljs.highlightElement(snippet)

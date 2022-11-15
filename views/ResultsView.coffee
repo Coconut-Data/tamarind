@@ -202,7 +202,7 @@ class ResultsView extends Backbone.View
     @tabulatorView.availableCalculatedFields = _(@availableCalculatedFieldDocs).pluck "Name"
 
     @queryDoc = await @getQueryDoc()
-    console.log @queryDoc
+    @tabulatorWithFormViews["queries"].editItem(await Tamarind.localDatabaseMirror.get(@queryDoc.docId()))
     if @queryDoc?.questionSet # This is used for determining availableFields
       @questionSet = @queryDoc.questionSet
       @tabulatorView.questionSet = @questionSet
