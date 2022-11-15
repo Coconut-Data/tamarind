@@ -19,6 +19,7 @@ AsyncFunction = Object.getPrototypeOf(`async function(){}`).constructor; # Stran
 
 hljs = require 'highlight.js/lib/core';
 hljs.registerLanguage('coffeescript', require ('highlight.js/lib/languages/coffeescript'))
+hljs.registerLanguage('javascript', require ('highlight.js/lib/languages/coffeescript'))
 
 class TabulatorWithFormView extends Backbone.View
 
@@ -41,11 +42,12 @@ class TabulatorWithFormView extends Backbone.View
     console.log "ZZZ"
     for field in ["Combine Queries", "Join Field", "Prefix"]
       if @$("#queries--index").val() is "Combine Queries"
-          @$("#section-queries-#{dasherize(field)}").show()
-          @$("#section-queries--query-field-options").hide()
+        console.log "XZASDSA"
+        @$("#section-queries-#{dasherize(field)}").show()
+        @$("#section-queries--query-field-options").hide()
       else
-          @$("#section-queries-#{dasherize(field)}").hide()
-          @$("#section-queries--query-field-options").show()
+        @$("#section-queries-#{dasherize(field)}").hide()
+        @$("#section-queries--query-field-options").show()
 
   # If a field has an actionOnChange property then we look it up and run it when this changes
   actionOnChange: (event) =>
@@ -90,9 +92,9 @@ class TabulatorWithFormView extends Backbone.View
     @render()
     if @type is "indexes"
       # The queries UI needs to update the list of available indexes
-      router.resultsView.tabulatorWithFormViews["queries"] = await TabulatorWithFormView.create(type)
-      router.resultsView.tabulatorWithFormViews["queries"].setElement @$("##{type}")
-      router.resultsView.tabulatorWithFormViews["queries"].render()
+      @resultsView.tabulatorWithFormViews["queries"] = await TabulatorWithFormView.create(type)
+      @resultsView.tabulatorWithFormViews["queries"].setElement @$("##{type}")
+      @resultsView.tabulatorWithFormViews["queries"].render()
 
   remove: =>
     if confirm "Are you sure you want to remove #{@$("##{@type}--name").val()}?"
@@ -178,7 +180,7 @@ class TabulatorWithFormView extends Backbone.View
       useBR: false
 
     @$('pre code').each (i, snippet) =>
-      hljs.highlightElement(snippet);
+      hljs.highlightElement(snippet)
 
     @load()
 
@@ -254,6 +256,7 @@ class TabulatorWithFormView extends Backbone.View
       else
         @$("##{@type}-#{dasherize(property.name)}")[0].value = data[property.name]
     @updateResultFromSample()
+    @toggleCombinedQueryOptions()
 
   renderSample: (sample) =>
     @currentSample = sample
@@ -287,9 +290,22 @@ class TabulatorWithFormView extends Backbone.View
       }
     </div>
     <span id='resultFromSample'></span>
+    <hr>
+    Code Used To Fetch Data:
+    <div 
+      style='
+        white-space:pre;
+        font-family:monospace;
+        font-size:small;'
+      id='codeUsed'>
+    </div>
     "
 
     @updateResultFromSample()
+    console.log "ASDASDAASD"
+    @$("#codeUsed").html @resultsView.queryDoc.queryCodeString
+    @$('#codeUsed').each (i, snippet) =>
+      hljs.highlightElement(snippet)
 
   updateResultFromSample: =>
     return unless @currentSample
@@ -358,10 +374,10 @@ class TabulatorWithFormView extends Backbone.View
     "
 
   currentQuestionSetName: =>
-    router?.resultsView?.questionSet?.name()
+    @resultsView?.questionSet?.name()
 
   TabulatorWithFormView.create = (type) =>
-    currentQuestionSetName = router?.resultsView?.questionSet?.name()
+    currentQuestionSetName = @resultsView?.questionSet?.name()
     new TabulatorWithFormView(
       switch type
         when "indexes"

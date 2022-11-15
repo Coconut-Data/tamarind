@@ -316,9 +316,11 @@ class TabulatorView extends Backbone.View
     if _(@fieldsFromData).isEmpty()
       console.log "Sampling data to determine available fields"
       for item in _(@data).sample(10000) # In case we have results from older question sets with different questions we will find it here. Use sample to put an upper limit on how many to check. (If the number of results is less than the sample target it just uses the number of results.
-        for key in Object.keys(item)
-          @fieldsFromData[key] = true
+        for key,value of item
+          @fieldsFromData[key] = true if value? # Don't get fields if value is empty
       @fieldsFromData = Object.keys(@fieldsFromData)
+
+    console.log @fieldsFromData
 
     mappingsForLabelsToDataFields = {}
     unmappedLabels = []

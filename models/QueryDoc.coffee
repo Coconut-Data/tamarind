@@ -107,15 +107,19 @@ class QueryDoc
 
       _(queryOptions).extend @["Query Options"]
 
-      console.log "Querying localDatabaseMirror #{@indexDoc?.Name or "_all_docs"} with:"
-      console.log CSON.stringify queryOptions, null, "  "
+      queryOptionsJson = JSON.stringify queryOptions, null, 2
+      console.log @Index
 
       await( if @Index is "_all_docs"
+        @queryCodeString = "Tamarind.localDatabaseMirror.allDocs(#{queryOptionsJson})"
+        console.log "Query Code:\n#{@queryCodeString}"
         Tamarind.localDatabaseMirror.allDocs(queryOptions)
       else if @Index is "Combine Queries"
         alert "Invalid combine queries - no queries selected"
         throw "Invalid combine queries - no queries selected"
       else
+        @queryCodeString = "Tamarind.localDatabaseMirror.query('#{@indexDoc.Name}',#{queryOptionsJson})"
+        console.log "Query Code:\n#{@queryCodeString}"
         Tamarind.localDatabaseMirror.query(@indexDoc.Name, queryOptions)
       ).catch (error) => 
         if error.reason is "missing"

@@ -142,6 +142,7 @@ Tamarind.getLocalMirrorForCouchDB = (serverUrlWithCredentials, databaseName) =>
   last_seq = await localDatabaseMirror.get "_local/remote_last_seq"
   .then (doc) => Promise.resolve doc.last_seq
   .catch => Promise.resolve null
+
   if last_seq
     Tamarind.watchRemoteChangesAndSaveLocally(remoteDatabase, localDatabaseMirror, last_seq)
     return Promise.resolve localDatabaseMirror
@@ -257,6 +258,8 @@ Tamarind.watchRemoteChangesAndSaveLocally  = (remoteDatabase, localDatabaseMirro
         doc.last_seq = seq
         doc
   ), 5000
+
+  console.log "Watching for remote changes at #{remoteDatabase.name} and syncing to LOCAL database named: #{localDatabaseMirror.name} (don't be confused by URL, it's just a string referring to a locally stored database in pouchdb)"
 
   remoteDatabase.changes
     since: last_seq

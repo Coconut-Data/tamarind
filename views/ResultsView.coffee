@@ -167,6 +167,8 @@ class ResultsView extends Backbone.View
                 changes += 1
                 @$("#dataChangesMessages").html "New data available (#{changes}) <button id='refresh'>Refresh</button>"
             ""
+          else
+            ""
         }
       </div>
       <button id='createNewQueryFromCurrentConfiguration'>Save current Query</button>
@@ -184,6 +186,7 @@ class ResultsView extends Backbone.View
     for type in ["indexes","queries","calculated-fields"]
       @tabulatorWithFormViews[type] = await TabulatorWithFormView.create(type)
       @tabulatorWithFormViews[type].setElement @$("##{type}")
+      @tabulatorWithFormViews[type].resultsView = @
       @$("##{type}").hide() unless Tamarind.user.has("Tamarind Indexes Queries Calculated-Fields")
       await @tabulatorWithFormViews[type].render()
 
@@ -272,7 +275,7 @@ class ResultsView extends Backbone.View
             "#{filterField.field}: <input readonly=true value='#{filterField.equals}'></input>"
           else
             CSON.stringify filterField
-          @$("#queryFilters").append "<br/>"
+          @$("#queryFilters").append "<br>"
 
 
         else if filterField.userSelectable
