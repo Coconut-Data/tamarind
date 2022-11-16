@@ -27,6 +27,7 @@ class Router extends Backbone.Router
     "database/:serverName/:databaseName": "showDatabase"
     "gateway/:serverName/:gatewayName": "showGateway"
     "results/:serverName/:databaseName/query/:queryDocName": "resultsFromQuery"
+    "results/:serverName/:databaseName/query/:queryDocName/analysis/:analysisId": "resultsFromQuery"
     "results/:serverName/:databaseName/:questionSetDocId": "results"
     #"questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId": "questionSet"
     #"questionSet/:serverName/:databaseOrGatewayName/:questionSetDocId/:question": "questionSet"
@@ -82,13 +83,14 @@ class Router extends Backbone.Router
     @questionSetView.activeQuestionLabel = question
     @questionSetView.render()
 
-  resultsFromQuery: (serverName, databaseName, queryDocName) =>
+  resultsFromQuery: (serverName, databaseName, queryDocName, analysisId) =>
     await Tamarind.setupDatabase(serverName, databaseName)
     @resultsView ?= new ResultsView()
     @resultsView.serverName = serverName
     @resultsView.databaseName = databaseName
     @resultsView.setElement $("#content")
     @resultsView.queryDocName = queryDocName
+    @resultsView.analysisId = analysisId
     @resultsView.render()
 
 

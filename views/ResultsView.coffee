@@ -241,6 +241,22 @@ class ResultsView extends Backbone.View
         console.log "Selected column is calculated field so need to calculate"
         @queryAndLoadTable()
 
+
+    if @analysisId
+      console.log @analysisId
+      analysisDoc = await Tamarind.database.get(@analysisId)
+      console.log analysisDoc
+      _.delay =>
+        for querySelector, value of analysisDoc.querySelectorsToSet
+          console.log querySelector
+          @$(querySelector).val(value).change()
+        for clickTarget in analysisDoc.clickTargets
+          @$(clickTarget)[0]?.click()
+        _.delay =>
+          @$(analysisDoc.scrollTarget)[0]?.scrollIntoView()
+        , 500
+      , 500
+
   queryAndLoadTable: =>
     @tabulatorView.data = await @getResultsWithCalculatedFields()
     console.log @tabulatorView.data

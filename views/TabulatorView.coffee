@@ -39,6 +39,27 @@ class TabulatorView extends Backbone.View
     "change #allowEdits": "toggleAllowEdits"
     "click #saveEdits": "saveEdits"
     "click #undoEdits": "undoEdits"
+    "click .linkHere": "linkHere"
+
+  linkHere: (event) =>
+    name = prompt("Enter a name for this analysis")
+    id = "tamarind-analysis-#{Tamarind.user._id.replace(/user./,"")}-#{Date.now().toString()}"
+    url = "#{document.location.href}/analysis/#{id}"
+    switch @$(event.target).attr("data-link-type")
+      when "chart"
+        await Tamarind.database.put 
+          _id: id
+          url: url
+          scrollTarget: "h4:contains('Charts')"
+          clickTargets: [
+            "h3:contains('Additional Analysis') .toggleNextSection"
+            "h4:contains('Charts') .toggleNextSection"
+          ]
+          querySelectorsToSet: 
+            "#columnToCount": @$("#columnToCount").val()
+    @$(event.target).after "<a href='#{url}'>Link for this analysis</a>"
+           
+
 
   saveEdits: =>
     confirmedChanges = {}
@@ -230,6 +251,7 @@ class TabulatorView extends Backbone.View
       <div style='display:none'>
         <h4>Charts#{@toggle()}</h4>
         <div style='display:none'>
+          <button class='linkHere' data-link-type='chart'>Link To This Analysis</button>
           To count and graph unique values in a particular column, select the column here: <select id='columnToCount'>
           <li>TODO: Bar and line option
           <li>TODO: Time series

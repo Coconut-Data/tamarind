@@ -39,10 +39,8 @@ class TabulatorWithFormView extends Backbone.View
     "change #queries--index": "toggleCombinedQueryOptions"
 
   toggleCombinedQueryOptions: =>
-    console.log "ZZZ"
     for field in ["Combine Queries", "Join Field", "Prefix"]
       if @$("#queries--index").val() is "Combine Queries"
-        console.log "XZASDSA"
         @$("#section-queries-#{dasherize(field)}").show()
         @$("#section-queries--query-field-options").hide()
       else
@@ -248,9 +246,7 @@ class TabulatorWithFormView extends Backbone.View
       @editItem cell.getData()
 
   editItem: (data) =>
-    console.log data
     for property in @properties
-      console.log property
       if property.type is "choices"
         @sortableChoices?.setChoiceByValue data[property.name]
       else
